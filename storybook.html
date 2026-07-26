@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!--
+  storybook.html — HTML entry for the standalone DS Storybook.
+
+  Served by its own Vite dev server (vite.storybook.config.mts) on port 3001,
+  separate from the product app (index.html on port 3000). Mounts src/storybook.ts.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="/favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{PROJECT_NAME}} · Storybook</title>
+  </head>
+  <body>
+    <div id="storybook"></div>
+    <script type="module" src="/src/storybook.ts"></script>
+  </body>
+</html>

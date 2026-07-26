@@ -1,0 +1,10 @@
+allowBuilds:
+  # Both ship postinstall build steps pnpm blocks by default. Left as the literal
+  # placeholder text ("set this to true or false"), pnpm treats them as un-approved
+  # and `pnpm install` exits 1 with ERR_PNPM_IGNORED_BUILDS — which the dev/build
+  # scripts' pre-run dep check runs, so `pnpm dev` failed before Vite ever started.
+  '@carbon/icon-helpers': false # no build step needed; ships prebuilt ESM/CJS
+  '@carbon/icons-vue': false # no build step needed; ships prebuilt ESM/CJS
+  '@carbon/pictograms': false # ships prebuilt ESM (es/); its only script is a `postinstall: ibmtelemetry` we deliberately don't run
+  '@parcel/watcher': true # native file-watching bindings
+  msw: true # copies the service worker into public/

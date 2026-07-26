@@ -1,0 +1,155 @@
+/**
+ * src/styles/overrides.css
+ *
+ * Small, documented overrides for Vuetify quirks that have no prop/token lever.
+ * Global (not scoped). Imported last in main.ts so it wins over component CSS.
+ */
+
+/*
+ * Outlined + rounded field: clean symmetric corners, no label override.
+ *
+ * Vuetify renders the floating label as a flex child INSIDE the border outline,
+ * right after the left corner cap:
+ *   .v-field__outline -> [ __start (cap) · __notch (label + gap) · __end (cap) ]
+ * When a `rounded-*` class is present it widens BOTH caps to
+ * `calc(control-height / 2 + 2px)` so each corner draws its full curve. We rely
+ * on that stock behavior: at the DS input radius (`lg` = 24px) both corners
+ * render an identical, symmetric curve — which is the look we keep.
+ *
+ * The cost is that the floating label sits ~14px right of the typed text (it
+ * lives after the widened cap). We do NOT try to pull it back: any override that
+ * shifts the notch/label to the text inset at a 24px radius collides with the
+ * corner geometry and breaks the top border at the corner. Label alignment and a
+ * full 24px corner are mutually exclusive in Vuetify's outlined field — aligning
+ * the label requires a radius that fits the text inset (<= 16px). We chose to
+ * keep the 24px corner, so the native label indent stays.
+ */
+
+/*
+ * VNumberInput +/- buttons: undo the global pill radius.
+ *
+ * The DS sets a global `VBtn: { rounded: 'pill' }` default, which stamps the
+ * `.rounded-pill` utility (border-radius: 9999px !important) onto EVERY VBtn —
+ * including the increment/decrement buttons VNumberInput builds internally.
+ * Vuetify styles those buttons square (border-radius: 0) on purpose: their
+ * prepend/append wrappers carry `overflow: hidden` + the field's inherited
+ * corner radius, so a square button's hover/active state fills the whole segment
+ * and rounds cleanly at the field's outer corner. The pill utility's !important
+ * overrides that 0, collapsing the state layer into a floating rounded blob that
+ * ignores the field corner. Force the buttons back to square (needs !important
+ * to beat the utility) so the wrapper clipping shapes the state as intended.
+ */
+.v-number-input__control .v-btn.rounded-pill,
+.v-number-input__control .v-btn {
+  border-radius: 0 !important;
+}
+
+/*
+ * Dropdown menu items: icon→label gap, set once.
+ *
+ * Menus/dialogs teleport their list into the overlay layer (.v-overlay__content),
+ * so this targets EVERY popover list at once — profile, notifications, filters,
+ * and any future menu — without repeating `--v-list-prepend-gap` per instance.
+ * The page nav isn't teleported, so it's unaffected and keeps its own inline gap.
+ * Change this one value to retune all dropdown menus.
+ */
+.v-overlay__content .v-list {
+  --v-list-prepend-gap: 8px;
+}
+
+/*
+ * Dropdown menu items: keep EVERY menu title at 14px, even nav-style ones.
+ *
+ * The app-wide default is now 14px (settings.scss $list-item-title-font-size), which
+ * already covers regular menus and in-page lists. But a `nav` list uses a separate
+ * var ($list-item-nav-title-font-size, 13px) that the global default doesn't touch —
+ * e.g. the Treatment Detail "⋯" options menu. Scoped to .v-overlay__content, this
+ * pins ALL teleported menu titles to 14 so every dropdown matches regardless of nav.
+ * The page nav / in-page lists aren't teleported, so they're unaffected here.
+ * Unlayered, so it beats the component's layered default.
+ */
+.v-overlay__content .v-list-item-title {
+  font-size: 0.875rem; /* body-medium (14px) */
+}
+
+/*
+ * Translucent surface fills — derived from the `background` / `surface` TOKENS.
+ *
+ * These are NOT new colours: each reads a theme token (one hue, defined once in
+ * vuetify.ts) and only changes the alpha, so the hue stays single-source and flips
+ * correctly in dark mode. Vuetify's own `bg-*` utilities wrap the token in rgb()
+ * (opaque), which is why an alpha version has to be authored here. Usable on ANY
+ * element (cards, v-sheet, drawers, plain divs) — not tied to a component.
+ *
+ * Legibility (medical app): keep text-bearing surfaces on the high end.
+ */
+.bg-background-50 { background-color: rgba(var(--v-theme-background), 0.50); }
+.bg-background-20 { background-color: rgba(var(--v-theme-background), 0.20); }
+.bg-surface-70    { background-color: rgba(var(--v-theme-surface), 0.70); }
+.bg-surface-20    { background-color: rgba(var(--v-theme-surface), 0.20); }
+
+/*
+ * Screen content width cap — the app-wide max measure for a screen's content column.
+ * ONE source of truth (`--screen-max-width`) so every screen aligns to the same
+ * centred 1920px column and full-bleed layouts stay a deliberate opt-out.
+ *
+ * Use it on a screen's content wrapper (e.g. a fluid <v-container>): full width until
+ * 1920, then capped and centred. Supply your own horizontal padding alongside it.
+ * Full-bleed screens (the fixed-viewport dashboard) simply don't apply it.
+ */
+:root { --screen-max-width: 1920px; }
+.screen-container {
+  width: 100%;
+  max-width: var(--screen-max-width);
+  margin-inline: auto;
+}
+
+/*
+ * Section-panel radius — the OUTER tier of the dashboard: the tinted
+ * `bg-background-50` containers that WRAP content cards. Content cards inherit the
+ * VCard `md` (16px) default; these sit one tier out and take a larger radius so the
+ * nesting stays concentric. A VCard can carry only ONE default `rounded`, so this
+ * second tier needs its own knob — change `--section-radius` to retune every section
+ * panel at once (parallels the single VCard default in vuetify.ts). The
+ * `.v-card.section-panel` selector (+ !important) beats the inherited `rounded-md`
+ * utility regardless of cascade order, so no reliance on import order.
+ */
+:root { --section-radius: 24px; }   /* the `lg` step (24px); the outer panel tier */
+.v-card.section-panel,
+.v-sheet.section-panel { border-radius: var(--section-radius) !important; }
+
+/*
+ * Pill segmented toggle — the iOS-style "switch" form of VBtnToggle.
+ *
+ * A default <v-btn-toggle> is a row of JOINED, square-cornered buttons. Adding
+ * `class="pill-toggle"` restyles it into a soft pill track holding text buttons,
+ * with the SELECTED button lifting to a raised white pill. Authored once here so
+ * any screen gets the look with a single class (the weight/height unit toggles in
+ * SignUp use it, and the Storybook Buttons section previews it). Buttons take
+ * height:100% so the toggle fills a stretch parent (e.g. beside a field in an
+ * align-stretch row) yet sizes to its content on its own. Loaded last, so no
+ * !important needed to beat Vuetify's joined-button defaults.
+ */
+.v-btn-toggle.pill-toggle {
+  flex-shrink: 0;
+  height: auto;
+  padding: 4px;
+  border-radius: 9999px;
+  background-color: rgba(var(--v-theme-on-surface), 0.06);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+.v-btn-toggle.pill-toggle .v-btn {
+  height: 100%;
+  min-width: 50px;
+  border-radius: 9999px;
+  background-color: transparent;
+  box-shadow: none;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+/* selected segment → raised white pill (overlay killed so the fill stays clean white) */
+.v-btn-toggle.pill-toggle .v-btn--active {
+  background-color: rgb(var(--v-theme-surface-bright));
+  color: rgb(var(--v-theme-on-surface));
+  box-shadow: 0 2px 8px rgba(var(--v-theme-on-surface), 0.16);
+}
+.v-btn-toggle.pill-toggle .v-btn--active .v-btn__overlay { opacity: 0; }
