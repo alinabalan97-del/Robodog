@@ -5,16 +5,16 @@
  * drop a `<Name>.vue` in src/screens/, add one entry to `routes` below, done — no
  * App.vue edits.
  *
- * ⚠️ TEMPLATE STATE: `routes` is EMPTY. This repo ships no product screens, so there
- * is nothing to route to yet — the first screen you build is also the first route.
- * Everything else here (the auth guard, session rehydration, the catch-all) is intact
- * scaffolding that switches itself on as soon as you add the matching routes.
+ * CURRENT STATE: one screen ships — FloorOps, the live floor operations console. It
+ * is the landing route (`home`), so it is eagerly imported per the convention below.
+ * There is still NO sign-in screen: the guard's `hasRoute(SIGNIN_ROUTE)` check is
+ * what keeps `requiresAuth` from throwing on a redirect target that doesn't exist,
+ * so the console is reachable without authenticating until a SignIn screen lands.
+ * That is deliberate scaffolding, not an auth hole to rely on — build sign-in before
+ * this goes anywhere real.
  *
- * Until then the product app (`corepack pnpm dev`, port 3000) renders a blank
- * `<RouterView>` and vue-router logs "No match found for location /". That is the
- * expected unconfigured state, not a bug. The DS Storybook is unaffected — it is a
- * separate standalone app that does not use this router at all (port 3001, see
- * storybook.html / src/storybook.ts / vite.storybook.config.mts).
+ * The DS Storybook does not use this router at all (port 3001, see storybook.html /
+ * src/storybook.ts / vite.storybook.config.mts).
  *
  * CONVENTIONS once you start adding screens:
  *   - Keep the landing screen and the sign-in screen EAGERLY imported (they are on
@@ -35,6 +35,7 @@
  */
 
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import FloorOps from '@/screens/FloorOps.vue'
 import { useAuthStore } from '@/stores/auth'
 
 /** Route names the auth guard redirects to. Rename here, not in the guard. */
@@ -42,15 +43,12 @@ const LANDING_ROUTE = 'home'
 const SIGNIN_ROUTE = 'signin'
 
 const routes: RouteRecordRaw[] = [
-  // No product screens ship with the template — add yours here. For example:
-  //
-  //   import Home from '@/screens/Home.vue'
-  //   import SignIn from '@/screens/SignIn.vue'
-  //
-  //   { path: '/', name: 'home', component: Home, meta: { requiresAuth: true } },
-  //   { path: '/signin', name: 'signin', component: SignIn, meta: { public: true } },
-  //   { path: '/settings', name: 'settings', meta: { requiresAuth: true },
-  //     component: () => import('@/screens/Settings.vue') },
+  // Landing screen — eagerly imported because it is on the first-paint path.
+  { path: '/', name: 'home', component: FloorOps, meta: { requiresAuth: true } },
+
+  // Every OTHER screen should be lazy so it becomes its own chunk, e.g.
+  //   { path: '/signin', name: 'signin', meta: { public: true },
+  //     component: () => import('@/screens/SignIn.vue') },
 ]
 
 // Fallback → the landing route. Added only once a landing route actually exists:

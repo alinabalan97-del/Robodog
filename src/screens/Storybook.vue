@@ -84,7 +84,7 @@
           <section class="mb-12">
             <div class="text-h5 font-weight-bold mb-1">Typography</div>
             <div class="text-body-2 text-medium-emphasis mb-2" style="max-width: 720px">
-              The MD3 type scale Vuetify 4.1.2 actually ships (font: Onest). Use these
+              The MD3 type scale Vuetify 4.1.2 actually ships (font: Inter). Use these
               <strong>text-*</strong> classes. Heads-up: the legacy <strong>text-h1…h6</strong> /
               <strong>text-subtitle-*</strong> / <strong>text-body-1/2</strong> / <strong>text-caption</strong> /
               <strong>text-overline</strong> classes are <strong>no-ops in v4</strong> — they render at
@@ -133,7 +133,7 @@
             </div>
 
             <!-- Radius scale -->
-            <div class="text-overline">Radius — the <code>rounded-*</code> scale (<code>$rounded</code> in settings.scss)</div>
+            <div class="text-overline">Radius — the <code>rounded-*</code> scale (<code>$radius-*</code> in _tokens.scss)</div>
             <div class="d-flex flex-wrap ga-5 mb-6">
               <div v-for="r in radiusScale" :key="r.cls" class="d-flex flex-column align-center ga-1">
                 <div class="radius-swatch" :class="r.cls" />
@@ -670,7 +670,7 @@
                     <v-card-subtitle>Supporting subtitle</v-card-subtitle>
                   </v-card-item>
                   <v-card-text>
-                    Cards use your defaults: rounded-md (16px), flat, thin hairline border.
+                    Cards use your defaults: rounded-md (8px), flat, thin hairline border.
                   </v-card-text>
                   <v-card-actions>
                     <v-btn color="primary">Action</v-btn>
@@ -1219,7 +1219,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, ref } from 'vue'
+  import { computed, onMounted, ref } from 'vue'
   import { useTheme } from 'vuetify'
   import type { AppIconName } from '@/icons/carbon'
   import AppPictogram from '@/components/AppPictogram.vue'
@@ -1369,20 +1369,34 @@
   // Real px so nobody has to look them up. Sources (verified against the installed
   // Vuetify 4 source + src/styles/settings.scss):
   //  • spacing: $spacer = 4px  →  pa-N / ma-N / ga-N = 4 × N
-  //  • radius:  the $rounded map in settings.scss (NOT the stale comment above it)
+  //  • radius:  NOT listed here — read live from the --radius-* CSS vars (see below)
   //  • sizing:  each component's size-prop scale, computed at root 16px / density=default
   const spacingScale = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16].map(n => ({ n, px: n * 4 }))
 
-  const radiusScale = [
+  // Radius is the one scale we DON'T hardcode here. It used to be a hand-typed px
+  // list, which silently went stale every time _tokens.scss was retuned (it sat at
+  // 8px through a period when `md` was 16px, and nothing caught it). css-tokens.scss
+  // publishes the scale as --radius-* custom properties, so read the live values off
+  // :root instead — this table is then correct by construction, forever.
+  // `pill` / `circle` / `0` are constants in Vuetify's map, not scale steps.
+  const radiusSteps = [
     { cls: 'rounded-0', px: '0' },
-    { cls: 'rounded-sm', px: '12px' },
-    { cls: 'rounded', px: '16px' },
-    { cls: 'rounded-lg', px: '24px' },
-    { cls: 'rounded-xl', px: '48px' },
-    { cls: 'rounded-2xl', px: '52px' },
+    { cls: 'rounded-sm', cssVar: '--radius-sm' },
+    { cls: 'rounded', cssVar: '--radius-md' },
+    { cls: 'rounded-lg', cssVar: '--radius-lg' },
+    { cls: 'rounded-xl', cssVar: '--radius-xl' },
+    { cls: 'rounded-2xl', cssVar: '--radius-2xl' },
     { cls: 'rounded-pill', px: '9999' },
     { cls: 'rounded-circle', px: '50%' },
   ]
+  const radiusScale = ref(radiusSteps.map(s => ({ cls: s.cls, px: s.px ?? '…' })))
+  onMounted(() => {
+    const root = getComputedStyle(document.documentElement)
+    radiusScale.value = radiusSteps.map(s => ({
+      cls: s.cls,
+      px: s.px ?? (root.getPropertyValue(s.cssVar!).trim() || '—'),
+    }))
+  })
 
   // The five shared size tokens, and what each renders as per component (px).
   const sizeTokens = ['x-small', 'small', 'default', 'large', 'x-large']
@@ -1469,21 +1483,21 @@
       group: 'Spacing, radius & sizing',
       rows: [
         { what: 'Spacing base ($spacer = 4px) — drives every pa-/ma-/ga- utility', file: 'src/styles/settings.scss', where: '$spacer · RESTART' },
-        { what: 'Radius scale — sm / md / lg / xl / pill …', file: 'src/styles/settings.scss', where: '$rounded map · RESTART' },
+        { what: 'Radius scale — sm / md / lg / xl / 2xl (also drives $border-radius-root)', file: 'src/styles/_tokens.scss', where: '$radius-* vars · RESTART' },
         { what: 'Component size scale (x-small … x-large)', file: 'src/styles/settings.scss', where: 'size scales · RESTART' },
       ],
     },
     {
       group: 'Special radii',
       rows: [
-        { what: 'Content-card radius (md / 16px) — app-wide default', file: 'src/plugins/vuetify.ts', where: 'defaults.VCard.rounded · hot-reload' },
+        { what: 'Content-card radius (md / 8px) — app-wide default', file: 'src/plugins/vuetify.ts', where: 'defaults.VCard.rounded · hot-reload' },
         { what: 'Section-panel radius (24px) — the outer wrapper tier', file: 'src/styles/overrides.css', where: '--section-radius + .section-panel · hot-reload' },
       ],
     },
     {
       group: 'Type',
       rows: [
-        { what: 'Font family (Onest) + type scale', file: 'src/styles/settings.scss', where: '$body-font-family, type vars · RESTART' },
+        { what: 'Font family (Inter) + type scale', file: 'src/styles/settings.scss', where: '$body-font-family, type vars · RESTART — swapping the family also needs the @fontsource dep + vite.config.mts' },
       ],
     },
     {
@@ -1551,7 +1565,9 @@
   /* monospace numeric labels for the token-scale references */
   .mono { font-family: monospace; }
 
-  /* spacing scale — a primary square whose side IS the px value */
+  /* spacing scale — a primary square whose side IS the px value.
+     2px is deliberately OFF the radius scale: the smallest swatches are only a
+     few px wide, and --radius-sm (4px) would round them into circles. */
   .spacing-swatch {
     background-color: rgb(var(--v-theme-primary));
     border-radius: 2px;
@@ -1573,7 +1589,7 @@
     font-size: 13px;
     max-width: 640px;
     border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow: hidden;
   }
   .sizing-row {
@@ -1603,7 +1619,7 @@
   .color-swatch {
     width: 100%;
     height: 52px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   }
 
@@ -1613,7 +1629,7 @@
     position: relative;
     width: 100%;
     height: 52px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background-color: rgb(var(--v-theme-surface));
     border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
     overflow: hidden;
@@ -1627,7 +1643,7 @@
   .border-swatch {
     width: 108px;
     height: 52px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   }
 
@@ -1637,7 +1653,7 @@
     font-size: 12.5px;
     max-width: 880px;
     border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow: hidden;
   }
   .edit-row {

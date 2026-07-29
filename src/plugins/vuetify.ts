@@ -70,13 +70,14 @@ export default createVuetify({
   // value. Edit any hex/number to rebrand; all components using a token update
   // instantly (hot-reloads, no restart). Add custom tokens later if you need them.
   theme: {
-    defaultTheme: 'light',
+    defaultTheme: 'dark',
     themes: {
-      light: {
-        dark: false,
+      dark: {
+        dark: true,
         colors: {
-          background: '#FFFFFF', // app page background — behind every screen
-          surface: '#FFFFFF', // default component surface — cards, sheets, menus, dialogs
+          background: '#020D20', // app page background — behind every screen
+          surface: '#162032', // default component surface — cards, sheets, menus, dialogs 
+          // Built from #7F8692 at ~12% opacity over the app background.
           // ── DEFAULT TEXT COLOR ──
           // Vuetify does NOT ship `on-surface` in its stock palette: it DERIVES one
           // per theme by contrast (see genOnColors in vuetify/lib/composables/theme.js),
@@ -87,50 +88,75 @@ export default createVuetify({
           // label, heading and body line across the app follows.
           // The same trick works for any token: `on-background`, `on-primary`, … —
           // declare the `on-` pair and it overrides Vuetify's auto-contrast choice.
-          'on-surface': '#000000', // default text/icon color across the app
-          'surface-bright': '#FFFFFF', // brightest surface — raised panels & header chrome
-          'surface-light': '#EEEEEE', // off-white body — section-panel backgrounds on most screens
-          'surface-variant': '#424242', // tonal accent fills (meters, timeline dots)
-          'on-surface-variant': '#EEEEEE', // fg on surface-variant; also Vuetify chips, tooltips, snackbars
-          primary: '#1867C0', // main brand color — CTAs, links, active states & branded controls
-          'primary-darken-1': '#1F5592', // darker primary — hover/pressed of primary
-          secondary: '#48A9A6', // supporting accent
-          'secondary-darken-1': '#018786', // darker secondary — hover/pressed of secondary
-          error: '#B00020', // error & validation states, destructive actions
-          info: '#2196F3', // informational states & badges
-          success: '#4CAF50', // success states & positive metrics
-          warning: '#FB8C00', // warning states & alerts
+          'on-surface': '#FFFFFF', // default text/icon color across the app
+          'surface-bright': '#23406B', // brightest surface — raised panels & header chrome
+          'surface-light': '#141C2C', // off-white body — section-panel backgrounds on most screens
+          'surface-variant': '#334563', // tonal accent fills (meters, timeline dots)
+          'on-surface-variant': '#BFC3C9', // fg on surface-variant; also Vuetify chips, tooltips, snackbars
+          'on-surface-weak': '#9FA4AD', // Figma `Neutral/text-weak` — placeholders, secondary labels
+          'outline-variant': '#2E3849', // Figma `Neutral/border` — hairline outline on inputs & icon buttons
+          'outline-medium': '#5F6877', // Figma `Neutral/border-medium` / grey-300 — stronger hairline + dim icons
+          primary: '#4C8AE8', // main brand color — CTAs, links, active states & branded controls  // Used as the gradient start color: // linear-gradient(135deg, #4C8AE8 0%, #9579FE 100%)
+          'primary-darken-1': '#3662A5', // darker primary — hover/pressed of primary
+          'primary-bright': '#47B0FF', // the CTA blue used by the Figma header button — see note in FloorOps.vue
+          'primary-medium': '#457ED3', // Figma `foundation/blue/blue-600` — checked/assigned control fills
+          'tertiary-bright': '#9ECBAD', // Figma `foundation/green/green-300` — the ring around the you-are-here pip
+          'primary-accent': '#9D6EFF', // assistant gradient START (Figma: rgb(157,110,255))
+          'primary-deep': '#6674D9', // 2D/3D active-segment gradient END (Figma: rgb(102,116,217))
+          secondary: '#62EBCD', // supporting accent
+          'secondary-darken-1': '#40E6C2', // darker secondary — hover/pressed of secondary
+          'secondary-accent': '#4DFDE0', // assistant gradient END (Figma: rgb(77,253,224))
+          'secondary-deep': '#2DA38A', // Figma `data viz/color 2/2` — the location-selector teal
+          tertiary: '#64A179', // muted brand green — identity surfaces (avatars). NOT a status color
+          error: '#D87894', // error & validation states, destructive actions
+          info: '#68BEFF', // informational states & badges
+          success: '#6EB185', // success states & positive metrics
+          warning: '#DD9933', // warning states & alerts
         },
         // theme variables — opacities & border used app-wide
         variables: {
-          'border-color': '#2F2F2E',
-          'border-opacity': 0.08,
-          'high-emphasis-opacity': 0.87,
-          'medium-emphasis-opacity': 0.60,
+          'border-color': '#525D70',
+          'border-opacity': 1,
+          'high-emphasis-opacity': 1,
+          'medium-emphasis-opacity': 0.72,
           'disabled-opacity': 0.38,
           'idle-opacity': 0.04,
           'hover-opacity': 0.04,
-          'focus-opacity': 0.12,
-          'selected-opacity': 0.08,
-          'activated-opacity': 0.12,
-          'pressed-opacity': 0.12,
-          'dragged-opacity': 0.08,
+          'focus-opacity': 0.16,
+          'selected-opacity': 0.16,
+          'activated-opacity': 0.20,
+          'pressed-opacity': 0.24,
+          'dragged-opacity': 0.16,
         },
       },
-      dark: {
-        dark: true,
+      light: {
+        dark: false,
         colors: {
-          // Each token plays the SAME role as in light (see the light theme for where each is used).
+          // Each token plays the SAME role as in dark (see the dark theme for where each is used).
+          // ⚠️ PLACEHOLDER PALETTE — these are still Vuetify's stock DARK values, not a light
+          // counterpart to the brand palette above. The light theme is wired up and selectable,
+          // but it will not read as "light" until these are replaced.
           background: '#121212', // app page background
           surface: '#212121', // cards, sheets, menus, dialogs
-          // The dark counterpart of the light theme's `on-surface` above — same
-          // reasoning, and this is the value Vuetify would derive for a #212121
-          // surface anyway. Rebrand both together so text stays legible in each theme.
+          // The light counterpart of the dark theme's `on-surface` above — same
+          // reasoning. Rebrand both together so text stays legible in each theme.
+          // (Still the dark-theme value today; see the placeholder note above.)
           'on-surface': '#FFFFFF', // default text/icon color across the app
           'surface-bright': '#ccbfd6', // raised panels & the top bar
           'surface-light': '#424242', // section-panel backgrounds
           'surface-variant': '#c8c8c8', // tonal accent fills
           'on-surface-variant': '#000000', // fg on surface-variant; chips, tooltips, snackbars
+          'on-surface-weak': '#9FA4AD', // Figma `Neutral/text-weak` — placeholders, secondary labels
+          'outline-variant': '#2E3849', // Figma `Neutral/border` — hairline outline on inputs & icon buttons
+          'outline-medium': '#5F6877', // Figma `Neutral/border-medium` — stronger hairline + dim icons
+          'primary-bright': '#47B0FF', // the CTA blue used by the Figma header button
+          'primary-medium': '#457ED3', // Figma `foundation/blue/blue-600` — checked/assigned control fills
+          'tertiary-bright': '#9ECBAD', // Figma `foundation/green/green-300` — the ring around the you-are-here pip
+          'primary-accent': '#9D6EFF', // assistant gradient START
+          'primary-deep': '#6674D9', // 2D/3D active-segment gradient END
+          'secondary-accent': '#4DFDE0', // assistant gradient END
+          'secondary-deep': '#2DA38A', // the location-selector teal
+          tertiary: '#64A179', // muted brand green — identity surfaces (avatars). NOT a status color
           primary: '#2196F3', // main brand color lifted for legibility on dark — CTAs, links, active states
           'primary-darken-1': '#277CC1', // hover/pressed of primary
           secondary: '#54B6B2', // supporting accents
@@ -170,13 +196,16 @@ export default createVuetify({
   //
   // `—` in a commented line means "no fixed default; supply your own value."
   defaults: {
-    // Button SHAPE is uniform brand styling → pill-shaped app-wide (matches the
-    // design). Color stays per-instance because it carries meaning (primary CTA
-    // vs secondary vs destructive). variant: 'flat' — the platform never uses button
+    // Button SHAPE is left to Vuetify, which derives it from
+    // $border-radius-root — bound to the `md` step in _tokens.scss, so buttons
+    // land on the same tier as cards with no prop here. Set `rounded` below only
+    // to make buttons deliberately differ from that tier (e.g. 'pill').
+    // Color stays per-instance because it carries meaning (primary CTA vs
+    // secondary vs destructive). variant: 'flat' — the platform never uses button
     // shadows, so default to flat instead of Vuetify's stock 'elevated'.
     VBtn: {
       variant: 'flat',       // 'elevated' | 'flat' | 'tonal' | 'outlined' | 'text' | 'plain'
-      rounded: 'pill',       // 0 | 'sm' | 'lg' | 'xl' | 'pill' | 'circle' | true
+      // rounded: —,         // 0 | 'sm' | 'lg' | 'xl' | 'pill' | 'circle' | true
       // size: 'default',    // 'x-small' | 'small' | 'default' | 'large' | 'x-large'
       // density: 'default', // 'default' | 'comfortable' | 'compact'
       // color: 'primary',   // any theme token
@@ -186,12 +215,11 @@ export default createVuetify({
       // ripple: true,
     },
 
-    // VTab is built on VBtn, so it inherits VBtn's pill default (above) — undo it
-    // so tab hover/selected overlays are square (Material tabs use a flat
-    // baseline + line indicator, not pills).
-    VTab: {
-      rounded: 0,
-    },
+    // VTab: {
+    //   rounded: —,   // stock $tab-border-radius is already 0 (Material tabs use a
+    //                 // flat baseline + line indicator). Only set this if VBtn above
+    //                 // gets a shape default — VTab is built on VBtn and inherits it.
+    // },
 
     // VBtnToggle: {
     //   variant: 'elevated',
@@ -228,15 +256,22 @@ export default createVuetify({
       // ripple: true,
     },
 
-    // Canonical input style: outlined box, `lg` corners, comfortable density
-    // (~48px tall — one step tighter than the spacious default). Outlined has a
-    // full border and no bottom line, so all corners round equally. Density is
-    // scoped to inputs here, so only fields tighten — buttons/lists keep the
-    // default density. (Screens may override per-instance, e.g. Home's search box.)
+    // Canonical input style: outlined box, comfortable density (~48px tall — one
+    // step tighter than the spacious default). Outlined has a full border and no
+    // bottom line, so all corners round equally. Density is scoped to inputs
+    // here, so only fields tighten — buttons/lists keep the default density.
+    // (Screens may override per-instance, e.g. a search box.)
+    //
+    // SHAPE is intentionally unset: Vuetify derives it from $border-radius-root
+    // (= the `md` step), so fields sit on the card tier automatically. Setting
+    // `rounded` here also makes Vuetify widen the outline caps to
+    // calc(control-height / 2 + 2px) — which pushes the floating label ~18px
+    // right of the typed text. Leaving it unset keeps label and value on one
+    // left edge for free; a deliberate `rounded="…"` reintroduces the indent.
     VTextField: {
       variant: 'outlined',   // 'filled' | 'outlined' | 'solo' | 'solo-filled' | 'solo-inverted' | 'underlined' | 'plain'
-      rounded: 'lg',
       density: 'comfortable',
+      // rounded: —,
       // color: —,
       // flat: false,
       // tile: false,
@@ -244,19 +279,16 @@ export default createVuetify({
 
     VTextarea: {
       variant: 'outlined',
-      rounded: 'lg',
       density: 'comfortable',
     },
 
     VFileInput: {
       variant: 'outlined',
-      rounded: 'lg',
       density: 'comfortable',
     },
 
     VNumberInput: {
       variant: 'outlined',
-      rounded: 'lg',
       density: 'comfortable',
     },
 
@@ -265,24 +297,22 @@ export default createVuetify({
     // styles that inner list to match the app's canonical dropdown: plain
     // full-bleed rows (NO `nav`, so no per-item radius or gaps) at compact
     // density, default 16px title. Popup radius + shadow come from settings.scss
-    // ($select-content-*: 8px, elevation 3).
+    // ($select-content-*: the `lg` step, elevation 3) — deliberately one tier
+    // ROUNDER than the field itself, which sits on `md` like every other input.
     VSelect: {
       variant: 'outlined',
-      rounded: 'lg',
       density: 'comfortable',
       listProps: { density: 'compact' },
     },
 
     VAutocomplete: {
       variant: 'outlined',
-      rounded: 'lg',
       density: 'comfortable',
       listProps: { density: 'compact' },
     },
 
     VCombobox: {
       variant: 'outlined',
-      rounded: 'lg',
       density: 'comfortable',
       listProps: { density: 'compact' },
     },
@@ -333,7 +363,7 @@ export default createVuetify({
     //   color: —,
     // },
 
-    // Card SHAPE default: 16px (`md`) corners app-wide, instead of Vuetify's
+    // Card SHAPE default: 8px (`md`) corners app-wide, instead of Vuetify's
     // stock 4px ($border-radius-root). Set as a prop default here (single source,
     // hot-reload) rather than a Sass card var. Instance `rounded="…"` still
     // overrides (e.g. a pill promo or a flush panel).
@@ -436,7 +466,7 @@ export default createVuetify({
     //   tile: false,
     // },
 
-    // Match the content-card radius tier (md = 16px) so alerts read as part of
+    // Match the content-card radius tier (md = 8px) so alerts read as part of
     // the same surface family instead of Vuetify's stock square corners.
     VAlert: {
       rounded: 'md',

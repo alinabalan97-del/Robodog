@@ -22,6 +22,7 @@ declare module '@carbon/icons-vue' {
   export const Add24: CarbonIcon
   export const AddAlt24: CarbonIcon
   export const Ai24: CarbonIcon
+  export const AiGenerate24: CarbonIcon
   export const Apps24: CarbonIcon
   export const ArrowDown24: CarbonIcon
   export const ArrowDownRight24: CarbonIcon
@@ -30,8 +31,13 @@ declare module '@carbon/icons-vue' {
   export const ArrowUp24: CarbonIcon
   export const ArrowUpRight24: CarbonIcon
   export const ArrowsVertical24: CarbonIcon
+  export const Asset24: CarbonIcon
   export const At24: CarbonIcon
   export const Attachment24: CarbonIcon
+  export const BatteryCharging24: CarbonIcon
+  export const BatteryHalf24: CarbonIcon
+  export const BatteryLow24: CarbonIcon
+  export const Bookmark24: CarbonIcon
   export const Calendar24: CarbonIcon
   export const CalendarHeatMap24: CarbonIcon
   export const CalendarTools24: CarbonIcon
@@ -59,11 +65,14 @@ declare module '@carbon/icons-vue' {
   export const CloseFilled24: CarbonIcon
   export const CloudUpload24: CarbonIcon
   export const ColorPalette24: CarbonIcon
+  export const Copy24: CarbonIcon
+  export const Cube24: CarbonIcon
   export const Dashboard24: CarbonIcon
   export const DeliveryTruck24: CarbonIcon
   export const Document24: CarbonIcon
   export const DocumentBlank24: CarbonIcon
   export const DocumentTasks24: CarbonIcon
+  export const DocumentWordProcessorReference24: CarbonIcon
   export const Download24: CarbonIcon
   export const Edit24: CarbonIcon
   export const Email24: CarbonIcon
@@ -73,7 +82,9 @@ declare module '@carbon/icons-vue' {
   export const FavoriteFilled24: CarbonIcon
   export const Filter24: CarbonIcon
   export const Flag24: CarbonIcon
+  export const Flash24: CarbonIcon
   export const Folder24: CarbonIcon
+  export const Grid24: CarbonIcon
   export const Group24: CarbonIcon
   export const Growth24: CarbonIcon
   export const HealthCross24: CarbonIcon
@@ -84,7 +95,10 @@ declare module '@carbon/icons-vue' {
   export const Information24: CarbonIcon
   export const Keyboard24: CarbonIcon
   export const Launch24: CarbonIcon
+  export const Layers24: CarbonIcon
+  export const Light24: CarbonIcon
   export const ListChecked24: CarbonIcon
+  export const LocationFilled24: CarbonIcon
   export const Locked24: CarbonIcon
   export const Logout24: CarbonIcon
   export const MacCommand24: CarbonIcon
@@ -102,12 +116,14 @@ declare module '@carbon/icons-vue' {
   export const NotificationFilled24: CarbonIcon
   export const NotificationNew24: CarbonIcon
   export const OverflowMenuHorizontal24: CarbonIcon
+  export const OverflowMenuVertical24: CarbonIcon
   export const Package24: CarbonIcon
   export const PageFirst24: CarbonIcon
   export const PageLast24: CarbonIcon
   export const Pause24: CarbonIcon
   export const Phone24: CarbonIcon
   export const Pills24: CarbonIcon
+  export const Pin24: CarbonIcon
   export const Play24: CarbonIcon
   export const PlayFilled24: CarbonIcon
   export const ProgressBarRound24: CarbonIcon
@@ -120,6 +136,7 @@ declare module '@carbon/icons-vue' {
   export const ReportData24: CarbonIcon
   export const Restaurant24: CarbonIcon
   export const Return24: CarbonIcon
+  export const Roadmap24: CarbonIcon
   export const Rocket24: CarbonIcon
   export const Ruler24: CarbonIcon
   export const Save24: CarbonIcon
@@ -148,6 +165,7 @@ declare module '@carbon/icons-vue' {
   export const Translate24: CarbonIcon
   export const Undo24: CarbonIcon
   export const UpToTop24: CarbonIcon
+  export const Van24: CarbonIcon
   export const User24: CarbonIcon
   export const UserFollow24: CarbonIcon
   export const UserMultiple24: CarbonIcon
@@ -160,4 +178,8 @@ declare module '@carbon/icons-vue' {
   export const Wallet24: CarbonIcon
   export const Warning24: CarbonIcon
   export const WarningFilled24: CarbonIcon
+  export const Wifi24: CarbonIcon
+  export const WifiOff24: CarbonIcon
+  export const ZoomIn24: CarbonIcon
+  export const ZoomOut24: CarbonIcon
 }

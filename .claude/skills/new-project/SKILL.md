@@ -1,83 +1,276 @@
 ---
 name: new-project
 description: >-
-  Bootstrap a new branded project from this template base by running a short brand-intake
-  quiz and reconfiguring the design system from the answers — product name, description,
-  domain, primary/secondary colors (chosen from the DS palette, not generic), radius
-  personality, and any custom color exceptions. Use when a designer starts a new project on
-  this codebase, wants to rebrand it, re-skin it, or "set up / configure" it without hunting
-  through config files — and whenever a grep turns up unreplaced {{PROJECT_NAME}}-style
-  placeholder tokens, which mean the template is still unconfigured. Writes the answers to
-  src/data/brand.ts, fills every {{TOKEN}} in index.html / storybook.html / package.json /
-  README.md / CLAUDE.md, and applies the colors to vuetify.ts and the radius to settings.scss.
+  Bootstrap a new branded project from this template base with a five-step setup: (1) identity —
+  ask only for project name, description and a logo, deriving everything else; (2) a pointer to the
+  color control panels (theme + component defaults + chart palette) for the designer to edit
+  directly; (3) the same for the radius scale, including whether to keep or retune the extra radii;
+  (4) the font family — the designer types a typeface name and the skill swaps it across the
+  Fontsource dependency, the Vite font loader and the Sass body-font var; (5) a verification pass
+  over every configured file, a reminder of anything still missing, plus an invitation to build the
+  first screen. Use when a designer
+  starts a new project on this codebase, wants to rebrand it, re-skin it, or "set up /
+  configure" it without hunting through config files — and whenever a grep turns up unreplaced
+  {{PROJECT_NAME}}-style placeholder tokens, which mean the template is still unconfigured.
+  Writes identity to src/data/brand.ts, fills every {{TOKEN}} in index.html / storybook.html /
+  package.json / README.md / CLAUDE.md, and deletes the TEMPLATE-ONLY scaffolding.
   Defers to vuetify-ds for all conventions.
 ---
 
 # /new-project — brand intake & reconfigure
 
-This skill turns a short quiz into a rebranded app. A designer answers ~6 questions; you
-write their answers into the brand preset and propagate them into the two design-system
-control files. No file hunting.
+Five steps: **1** identity · **2** colors · **3** radius · **4** font · **5** verify & first screen.
 
-**Before anything, load `vuetify-ds`** — it is the authority on every DS convention this
-skill touches (tokens-only, where colors vs radius live, dataset-driven screens). This
+## ⛔ How to write every step
+
+**What the designer sees at each step is short: what this step is, the few things they can do, and
+how to move on. Nothing else.** Everything below a step's quoted block is *for you* — file paths,
+invariants, edit sequences, failure modes. Do not recite it. Do not paste a step's reference table
+unless the designer is actually choosing from it. If your message can't be skimmed in ten seconds,
+it's too long — cut it, don't restructure it.
+
+Rules of thumb, all steps:
+- Lead with the ask, not the context. Explain a file only when they have to open it.
+- One decision per step. Never preview steps 2–5 while running step 1.
+- No `AskUserQuestion` in steps 2–4 — say the short block, end the turn, wait for a reply.
+- Warnings are earned, not front-loaded: raise an invariant *when they edit the thing it guards*.
+
+**Before anything, load `vuetify-ds`** — it is the authority on every DS convention this skill
+touches (tokens-only, where colors vs radius vs chart palette live, dataset-driven screens). This
 skill never contradicts it.
 
-## What you reconfigure, and where it lands
+**Confirm the target first.** This rewrites brand identity app-wide. If you're running on an
+existing/live app rather than a fresh clone, say so plainly and get a go-ahead before editing.
 
-| Answer | Lands in | Reload |
+---
+
+## Step 1 — Identity
+
+**Three things, that's the whole step.** Say this and nothing more:
+
+> **Step 1 of 5 — what is this project?**
+>
+> 1. **Name** — what the product is called.
+> 2. **Description** — a sentence or two on what it does and who it's for.
+> 3. **Logo** *(optional)* — drop the file into `src/assets/`; the folder ships empty for it.
+>    Skip it and we carry on — I'll remind you at the end.
+>
+> Everything else — short name, tagline, package slug, domain — I derive from those and show you
+> at the end to correct.
+
+**Anything they already told you, don't ask for again.** If invoking the skill already came with a
+name and a description, fill those two lines in yourself and show the list with 1 and 2 answered —
+all that's left is the logo. If the description is thin but usable, take it; step 5 is where a
+wrong guess gets fixed.
+
+**Then:**
+- **Name and description in hand** → write step 1 immediately (see *Applying* below) and go
+  straight to step 2. No confirmation round-trip, and the logo never blocks.
+- **Either one missing** → end the turn and wait for the reply.
+
+### Only if the description can't carry the setup — then quiz
+
+The bar is concrete: can you write a real domain line and real domain rules from what they said?
+A one-liner like *"a booking app"* can't. If it's that thin, ask again in **one `AskUserQuestion`
+call, two or three questions max** — free-text via the "Other" field:
+
+- Who uses it — end consumers, internal staff, clinicians, admins?
+- What's the main thing someone does in it?
+- Does it handle anything sensitive or regulated — health data, payments, minors, legal records,
+  safety-critical figures?
+
+The sensitive/regulated question is the one that earns the quiz: it turns `CLAUDE.md`'s **Domain
+rules** from a placeholder into real constraints, and it shapes every screen built afterward. Ask
+it whenever you're quizzing at all. If the **name** is missing too, add it as one more free-text
+question in that same call — never a second round-trip, and never a name you invented.
+
+### What gets derived from the name + description
+
+| Derived | From | Rule |
 |---|---|---|
-| Name, short name, description, tagline | `src/data/brand.ts` → `identity` (live; screens read it) | hot |
-| Name, description, slug, domain | the `{{TOKEN}}` placeholders outside `src/` (see below) | varies |
-| Primary / secondary / semantic colors | `src/plugins/vuetify.ts` → `theme.themes.light` **and** `dark` `.colors` | hot |
-| Radius personality | `src/styles/settings.scss` → `$rounded` map + `$border-radius-root` | **restart** |
-| A record of every choice | `src/data/brand.ts` → `colors` / `radius` (the re-runnable preset) | — |
+| `identity.shortName` / `{{PROJECT_SHORT_NAME}}` | name | The wordmark form. Default = the full name; shorten only if the name is long or has a legal suffix. |
+| `identity.tagline` / `{{PROJECT_TAGLINE}}` | description | One short line. If nothing good falls out, omit it — `tagline` is optional. |
+| `{{PROJECT_SLUG}}` | name | npm-safe: lowercase, hyphens, no spaces. |
+| `{{PROJECT_DOMAIN}}` | description (+ quiz, if one ran) | One line naming what the product *is* ("a clinical intake platform", "an internal ops console"). |
+| **Domain rules** in `CLAUDE.md` | description (+ quiz, if one ran) | The real constraints. If the domain carries none, write one line saying so — never leave the placeholder block. |
 
-`src/data/brand.ts` is the single source of truth for identity and the inspectable record
-of the color/radius choices. Read its header before editing — it explains which fields are
-live vs. a record.
+⚠️ **Derive, don't invent.** Every derived value is shown back for approval in **step 5**. If the
+answers genuinely don't support a domain rule, say that rather than authoring a plausible-sounding
+regulation the designer never mentioned.
 
-### Two kinds of template scaffolding — REPLACE vs DELETE
+Once you have a name and description, **write step 1 before opening step 2** — `brand.ts`, the
+`{{TOKEN}}` files, and the `TEMPLATE-ONLY` deletions (see *Applying* below) — so the rest of the
+setup runs on an already-named app.
 
-Configuring is not just find-and-replace. The repo carries scaffolding in **two** forms, and
-they need opposite treatment. Getting this wrong is the classic failure: the tokens all get
-filled in, and the project ships forever describing itself as an unconfigured template.
+---
 
-**1. `{{TOKENS}}` — REPLACE with the answer.**
+## Step 2 — Colors
 
-- **Inside `src/`** — nothing spells the product name. Code reads `brand.identity` and
-  interpolates it (`` `${brand.identity.shortName} Settings` ``). Rewriting `brand.ts` renames
-  the whole app.
-- **Outside `src/`** — files that can't import a TS module carry a literal token:
+Say this — three lines and an exit. Don't walk tokens one at a time, don't list every color token,
+don't ask a question per color. The files document themselves (every hex in `vuetify.ts` is
+commented inline with what it controls), so your job is routing, not transcribing.
 
-  | Token | Files |
-  |---|---|
-  | `{{PROJECT_NAME}}` | `index.html`, `storybook.html`, `README.md`, `CLAUDE.md` |
-  | `{{PROJECT_DESCRIPTION}}` | `README.md`, `CLAUDE.md` |
-  | `{{PROJECT_SLUG}}` | `package.json` (`name` — must be npm-safe: lowercase, hyphens) |
-  | `{{PROJECT_DOMAIN}}` | `CLAUDE.md` (what the product *is* — drives its domain rules) |
-  | `{{PROJECT_SHORT_NAME}}`, `{{PROJECT_TAGLINE}}` | `src/data/brand.ts` only |
+> **Step 2 of 5 — colors.** Edit these yourself, or tell me what you want and I'll set it. All
+> three hot-reload.
+>
+> 1. **Brand palette** — [`src/plugins/vuetify.ts`](src/plugins/vuetify.ts) → the `light` and
+>    `dark` `colors` blocks. Edit both.
+> 2. **Component look** — same file, the `defaults` block: uncomment a line to make it an app-wide
+>    default.
+> 3. **Chart colors** — [`src/data/chartTheme.ts`](src/data/chartTheme.ts).
+>
+> Preview: `corepack pnpm dev:storybook` → http://localhost:3001.
+>
+> Type **next** when you're done.
 
-**2. `TEMPLATE-ONLY` blocks — DELETE outright.**
+Then **end your turn and wait.** Any reply meaning "done" — next, done, ok, finished — moves to
+step 3.
 
-Prose that describes the *unconfigured* state: "this repo is an unconfigured template", the
-token tables, "src/screens/ holds only Storybook.vue", "a blank RouterView is expected, not a
-bug", "no logo ships". Every one of these is **false or misleading** the moment the project is
-real. They're wrapped in markers so you never have to hunt them:
+Reference, for when they ask or hand you the work — don't volunteer it:
 
+- **Theme colors** → `theme.themes.light.colors` / `.dark.colors`. Brand tokens, text/surface ink,
+  reserved state colors. Dark is not a copy of light — derive a legible counterpart.
+- **Component defaults** → the `defaults` block: variant, shape, size, density, elevation, one
+  block per component. Anything a prop can't express is a build-time Sass var in
+  [`src/styles/settings.scss`](src/styles/settings.scss) (**restart**); the full ~764-var catalog
+  is [`src/styles/sass-variables-reference.md`](src/styles/sass-variables-reference.md).
+- **Chart palette** → `categorical` / `sequential` / `diverging`. Ink, surfaces and status colors
+  are read live from the theme, so they're not duplicated there. ⚠️ Raise this **only if they
+  retune it**: the hexes *and their order* were validated for colorblind separation against both
+  surfaces — read the file header, load `dataviz`, don't eyeball it.
+- Preserve the inline comments in every file you edit.
+
+---
+
+## Step 3 — Radius
+
+Read the live values out of `_tokens.scss` first, then say this — the table *is* the decision, so
+it stays, but nothing else does:
+
+> **Step 3 of 5 — corner radius.** Five values in
+> [`src/styles/_tokens.scss`](src/styles/_tokens.scss); everything else follows them.
+>
+> | Var | Now | Controls |
+> |---|---|---|
+> | `$radius-sm` | 4px | opt-in only |
+> | `$radius-md` | 8px | ⭐ the default — cards, buttons, inputs, dialogs, menus |
+> | `$radius-lg` | 12px | select / autocomplete popups |
+> | `$radius-xl` | 16px | opt-in only |
+> | `$radius-2xl` | 24px | section panels, large surfaces |
+>
+> Bigger = softer, smaller = crisper. This one is Sass, so **restart `corepack pnpm dev`** after
+> editing.
+>
+> Type **next** to keep them, or describe the feel you want and I'll set it.
+
+Then **end your turn and wait**, same as step 2.
+
+Reference, for when they ask or hand you the work — don't volunteer it:
+
+- The five steps drive the `rounded-*` utilities, every `rounded` prop, `$border-radius-root`, the
+  `--radius-*` CSS vars, and the dialogs/menus/snackbars/tooltips that have no `rounded` prop.
+- **Derived radii** — vars that aren't a plain step. Today there's exactly one: `--section-radius`
+  in [`src/styles/overrides.css`](src/styles/overrides.css) (the outer `.section-panel` tier),
+  pointed at `--radius-2xl` so it tracks the scale automatically. Check the file rather than
+  trusting that count. Mention it **only if** they ask for the outer tier to read differently from
+  the rest — then repoint it, or add a step.
+- A *new* named radius: new step in `_tokens.scss` → forward it in `css-tokens.scss` → consume the
+  `--radius-*` var. Never a px literal outside `_tokens.scss` — not in `settings.scss`,
+  `css-tokens.scss`, or `overrides.css`, not even to "fix" a radius.
+- `_tokens.scss`'s header documents two invariants enforced in `settings.scss`; don't hand-edit
+  around them.
+
+---
+
+## Step 4 — Font family (they name it, **you** swap it)
+
+The one step that isn't self-serve: a swap touches several files that must agree, and missing one
+fails *silently*. So they name a typeface, you do the wiring.
+
+Read the live value from [`src/styles/settings.scss`](src/styles/settings.scss)
+(`$body-font-family`) before quoting it. Then say:
+
+> **Step 4 of 5 — the font.** Currently `<live family>`. One family covers the whole app.
+>
+> **Type a typeface name** — "Onest", "Geist", "Instrument Sans" — and I'll wire it up. It needs to
+> be on [Fontsource](https://fontsource.org) (most of Google Fonts and more); I'll say so and
+> suggest a match if it isn't.
+>
+> Type **next** to keep `<live family>`.
+
+Then **end your turn and wait.** "next" / "keep it" moves to step 5.
+
+One line to keep out of that block unless asked: headings inherit the body font and charts read it
+off the rendered page, so nothing has to be set twice. The two follow-ons below (heading font,
+self-hosted font) are the same — answer them, never offer them.
+
+### The swap — miss one of these and it silently doesn't work
+
+Given a family name, derive the Fontsource slug: lowercase, spaces → hyphens (`Instrument Sans` →
+`instrument-sans`). Then:
+
+1. **Install it** — `corepack pnpm add @fontsource/<slug>` from the repo root. **This is also the
+   existence check.** If it 404s, try `@fontsource-variable/<slug>` — some families ship only as a
+   variable font, and `unplugin-fonts` resolves either. If both 404, the font isn't on Fontsource:
+   don't guess a near-miss slug and don't proceed — tell the designer, name one or two real
+   alternatives, and wait.
+2. **Register it with the loader** — [`vite.config.mts`](vite.config.mts) → the `Fonts({ fontsource:
+   { families: [...] } })` block. Add an entry with the family's **display name** (not the slug)
+   and its weights:
+   ```ts
+   { name: 'Instrument Sans', weights: [400, 500, 600, 700], styles: ['normal'] },
+   ```
+   ⚠️ **Only list weights the family actually ships** — check the installed package's directory
+   (`node_modules/@fontsource/<slug>/`, whose filenames carry the weights) rather than copying
+   another entry's list. A requested weight that doesn't exist just doesn't load.
+   Keep `[400, 500, 600, 700]` as the floor when the family has them: MD3's utility classes use
+   400/500 and the type scale reaches 700, and a missing weight renders as faux-bold.
+3. **Point the Sass var at it** — [`src/styles/settings.scss`](src/styles/settings.scss) →
+   `$body-font-family: ('Instrument Sans', sans-serif),`. Keep the `sans-serif` fallback (use
+   `serif` / `monospace` if that's the genre). The quoted name must match the loader entry
+   **exactly**, spelling and case — this is the join, and a typo here is the silent-fallback bug.
+4. **Prune what it replaced** — drop the old family's entry from `vite.config.mts` and its
+   `@fontsource/*` dep from `package.json` (`corepack pnpm remove @fontsource/<old-slug>`) once
+   nothing references it. Every registered family ships `@font-face` rules into `unfonts.css`,
+   which both apps load, so leaving a dead one costs real bytes. **Keep `Roboto`** — it's
+   Vuetify's own default and the last-resort fallback.
+5. **Record it** — `src/data/brand.ts` → `brand.typography` (`family` / `fontsourceSlug` /
+   `weights`), so the preset stays truthful. That field is a record, like `colors` and `radius`;
+   editing it alone changes nothing.
+
+**Then restart `corepack pnpm dev` (and `dev:storybook`)** — `settings.scss` is build-time Sass.
+Confirm on the Storybook's *Typography* section, which renders the whole scale in the live font.
+
+**Two follow-ons, only if they come up:**
+
+- **A separate heading font.** `$heading-font-family` is its own Sass var (it just defaults to the
+  body font). Setting it means registering a second family in `vite.config.mts` — the same edits
+  again, double the font payload. Fine if asked for; don't volunteer it.
+- **A self-hosted / licensed font.** Not on Fontsource: put the files in `src/assets/fonts/`, write
+  the `@font-face` rules in [`src/styles/overrides.css`](src/styles/overrides.css) (loaded by both
+  entries), skip edits 1–2 above, and still do edit 3 — `$body-font-family` is what makes it apply.
+
+**Close the step with a stale-label sweep.** The family name is written out by hand in a few spots
+that nothing derives — `src/screens/Storybook.vue` alone has two (the *Typography* section blurb
+and the *Type* row of the reference table). Grep the **old** family name repo-wide and update every
+prose hit:
+
+```bash
+grep -rn '<old family>' --exclude-dir=node_modules --exclude-dir=.git .
 ```
-<!-- TEMPLATE-ONLY:start … -->  …block…  <!-- TEMPLATE-ONLY:end -->   ← markdown
- * TEMPLATE-ONLY:start          …block…   * TEMPLATE-ONLY:end          ← TS/JS comments
-```
 
-**Delete the marker and everything between the pair.** Don't rewrite the block, don't just strip
-the markers. One exception, called out inline in `CLAUDE.md`: the **Domain rules** block says
-"write the real rules here" — there, replace the block with the domain rules from the quiz.
+`src/components/charts/useChartTheme.ts` also carries the old name as a last-resort fallback string
+(it normally reads the live computed font off `document.body`) — update it for consistency.
 
-Files carrying them today: `CLAUDE.md` (4 blocks), `README.md` (1 large block), `src/data/brand.ts`
-(3 blocks). Confirm against the live repo rather than trusting this count.
+⚠️ **Unlike the `{{TOKEN}}` grep in step 5, this one must NOT exclude `.claude`.** The `vuetify-ds`
+and `frontend-design` skills state the live font by name as a *fact about this project*, not as
+documentation of a placeholder — so they go stale on a swap and have to be updated too.
 
-### Verifying — two greps, both must come back empty
+---
+
+## Step 5 — Verify, confirm, and start the first screen
+
+**a. Run both greps. Both must come back empty:**
 
 ```bash
 grep -rn '{{[A-Z_]*}}'  --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude .
@@ -88,158 +281,177 @@ grep -rn 'TEMPLATE-ONLY' --exclude-dir=node_modules --exclude-dir=.git --exclude
 tokens in prose, so without that flag the first grep returns ~20 hits forever and the check is
 worthless. The skills are the instruction manual — they are never configured.
 
-**No logo ships with the template** — deliberately, since vector wordmarks can't be
-find-and-replaced. Mention at wrap-up that a lockup is still needed: it goes in
-`src/components/` and should bind `:aria-label="brand.identity.name"` so the accessible name
-tracks the preset.
+A hit in the **second** grep is the classic failure: tokens all filled in, but the repo still
+describes itself as an unconfigured template forever.
 
-## ⚠️ Guardrails (read before you run)
+**b. Type-check:** `node_modules/.bin/vue-tsc --build` from the repo root.
 
-- **Confirm the target first.** This rewrites brand colors app-wide. If you're running on an
-  existing/live app (not a fresh clone), state that plainly and get a go-ahead before editing
-  `vuetify.ts` / `settings.scss`. Colors and identity are reversible; still, confirm.
-- **Colors come from the DS palette, never a generic wheel.** Before the color questions,
-  **read the current `vuetify.ts` `theme.themes.light.colors`** and offer those real hues as
-  the options (with their hex). "Custom hex" is always available via the quiz's "Other" field,
-  but the defaults must be the project's actual palette.
+**c. Echo a confirmation table** — every value and the file it landed in, marking derived ones so
+they get a real look. This table is the one long thing the designer *should* see; it's what they
+check. Everything after it stays short:
+
+| | Value | Written to |
+|---|---|---|
+| Name | … | `brand.ts`, `index.html`, `storybook.html`, `README.md`, `CLAUDE.md` |
+| Short name *(derived)* | … | `brand.ts` |
+| Description | … | `brand.ts`, `README.md`, `CLAUDE.md` |
+| Tagline *(derived)* | … | `brand.ts` |
+| Slug *(derived)* | … | `package.json` |
+| Domain *(derived)* | … | `CLAUDE.md` |
+| Domain rules *(derived)* | … | `CLAUDE.md` → Domain rules |
+| Theme colors | changed / kept stock | `vuetify.ts` (both themes) |
+| Component defaults | changed / kept stock | `vuetify.ts` → `defaults` |
+| Chart palette | changed / kept stock | `src/data/chartTheme.ts` |
+| Radius scale | changed / kept stock | `_tokens.scss` |
+| Extra radii (`--section-radius`) | kept tracking the scale / repointed | `overrides.css` |
+| Font family | changed / kept stock | `settings.scss` + `vite.config.mts` + `package.json` |
+
+Ask them to correct anything wrong before moving on. **The derived rows are the ones to look at** —
+they're inferences from prose, not answers they typed, so say that.
+
+Keep it scannable: collapse every style row still at *kept stock* into a single closing line
+("Colors, radius and font: kept stock") instead of five near-identical rows. The identity rows
+always show individually — those are the ones being checked.
+
+**d. Name what's still open — one short list, one line each.** Check each against the actual repo
+state and report only the ones genuinely outstanding. No paragraphs; a designer scanning this needs
+to see the count, not read an essay.
+
+- **Logo** — read `src/assets/`, don't assume. Empty → "no logo yet, drop one in whenever." A file
+  there → offer to build the component (`src/components/`, binding
+  `:aria-label="brand.identity.name"`); the template ships none on purpose, since a vector wordmark
+  can't be find-and-replaced.
+- **Anything left at stock** — name the rows marked *kept stock*; each is still wearing the
+  template's look and is changed by editing the file in the table.
+- **Domain rules** — if you wrote "none apply", that's an open item, not a finished one.
+- **No screens yet** — `src/router/index.ts` ships an empty `routes` array (hand-off to **f**).
+
+**e. Two closing notes, if they apply:**
+- **Restart `corepack pnpm dev`** if radius or the font changed (both Sass); everything else
+  hot-reloads. A font swap also touched `package.json` — others on the repo need
+  `corepack pnpm install`.
+- `CLAUDE.md`'s "What the template ships" section is now partly stale — it describes a repo with no
+  screens, and it rewrites itself as screens land. Worth a line so nobody trusts "a blank
+  RouterView is expected" while debugging a real routing problem.
+
+**f. Invite the first screen.** Close by asking for it directly:
+
+> The design system is configured and there are no screens yet — `src/router/index.ts` ships an
+> empty `routes` array, so the first screen you add is also the first route.
+>
+> **Paste a screenshot or mockup of the screen you want, or just describe it**, and I'll build it.
+
+When they answer, that's ordinary screen work: `vuetify-ds` → `frontend-design` → build →
+`web-design-guidelines`, with the screen's data in a typed `src/data/<screen>.ts` dataset.
+
+---
+
+## Applying the answers — what lands where
+
+`src/data/brand.ts` is the single source of truth for identity and the inspectable record of the
+color/radius choices. Read its header before editing — it explains which fields are live vs. a
+record.
+
+| Answer | Lands in | Reload |
+|---|---|---|
+| Name, short name, description, tagline | `src/data/brand.ts` → `identity` (live; screens read it) | hot |
+| Name, description, slug, domain | the `{{TOKEN}}` placeholders outside `src/` | varies |
+| Theme colors (if you set them) | `src/plugins/vuetify.ts` → `theme.themes.light` **and** `dark` `.colors` | hot |
+| Component defaults (if you set them) | `src/plugins/vuetify.ts` → `defaults` (Sass-only dimensions → `settings.scss`, **restart**) | hot |
+| Chart palette (if you set it) | `src/data/chartTheme.ts` → `categorical` / `sequential` / `diverging` | hot |
+| Radius (if you set it) | `src/styles/_tokens.scss` → the five `$radius-*` values | **restart** |
+| Extra radii (if repointed) | `src/styles/overrides.css` → `--section-radius`, pointed at a `--radius-*` step | hot (plain CSS — but the step it points at is Sass → **restart**) |
+| Font family (if swapped) | `package.json` (`@fontsource/<slug>`) + `vite.config.mts` (`Fonts` families) + `src/styles/settings.scss` (`$body-font-family`) — all three | **restart** |
+| A record of every choice | `src/data/brand.ts` → `colors` / `radius` / `typography` (the re-runnable preset) | — |
+
+### Two kinds of scaffolding — REPLACE vs DELETE
+
+**1. `{{TOKENS}}` — REPLACE with the value.**
+
+- **Inside `src/`** — nothing spells the product name. Code reads `brand.identity` and
+  interpolates it (`` `${brand.identity.shortName} Settings` ``). Rewriting `brand.ts` renames
+  the whole app.
+- **Outside `src/`** — files that can't import a TS module carry a literal token:
+
+  | Token | Files |
+  |---|---|
+  | `{{PROJECT_NAME}}` | `index.html`, `storybook.html`, `README.md`, `CLAUDE.md` |
+  | `{{PROJECT_DESCRIPTION}}` | `README.md`, `CLAUDE.md` |
+  | `{{PROJECT_SLUG}}` | `package.json` (`name` — must be npm-safe) |
+  | `{{PROJECT_DOMAIN}}` | `CLAUDE.md` (what the product *is* — drives its domain rules) |
+  | `{{PROJECT_SHORT_NAME}}`, `{{PROJECT_TAGLINE}}` | `src/data/brand.ts` only |
+
+**2. `TEMPLATE-ONLY` blocks — DELETE outright.**
+
+Prose describing the *unconfigured* state: "this repo is an unconfigured template", the token
+tables, "src/screens/ holds only Storybook.vue", "a blank RouterView is expected, not a bug", "no
+logo ships". Every one is **false or misleading** the moment the project is real. They're wrapped
+in markers so you never have to hunt them:
+
+```
+<!-- TEMPLATE-ONLY:start … -->  …block…  <!-- TEMPLATE-ONLY:end -->   ← markdown
+ * TEMPLATE-ONLY:start          …block…   * TEMPLATE-ONLY:end          ← TS/JS comments
+```
+
+**Delete the marker and everything between the pair.** Don't rewrite the block, don't just strip
+the markers. One exception, called out inline in `CLAUDE.md`: the **Domain rules** block says
+"write the real rules here" — there, replace the block with the domain rules derived in step 1.
+
+Files carrying them today: `CLAUDE.md`, `README.md`, `src/data/brand.ts`. Work from the grep, not
+from a memorized list — the blocks move as the repo evolves.
+
+### Order of writes
+
+1. **`src/data/brand.ts`** — rewrite `brand.identity` (replacing its tokens); keep
+   `brand.colors` / `brand.radius` / `brand.typography` truthful to whatever ends up in the control
+   files.
+2. **Replace every `{{TOKEN}}`** — `index.html` / `storybook.html` (`<title>`), `package.json`
+   (`name`), `README.md` (heading/blockquote), `CLAUDE.md` (**What this is** blockquote).
+3. **Delete every `TEMPLATE-ONLY` block**, per the exception above. In `src/data/brand.ts` the
+   surrounding header comment explaining live-vs-record fields **stays** — it's true forever.
+4. **Only if you were asked to set them:** theme colors and component defaults in
+   `src/plugins/vuetify.ts` (both themes, inline comments preserved), chart palette in
+   `src/data/chartTheme.ts`, radius in `src/styles/_tokens.scss`, `--section-radius` in
+   `src/styles/overrides.css`, and the font across all three of `package.json` /
+   `vite.config.mts` / `src/styles/settings.scss`.
+
+## Guardrails
+
+- **Colors come from the DS palette, never a generic wheel.** If you're setting colors on the
+  designer's behalf, **read the current `vuetify.ts` colors first** and work from those real hues.
 - **Tokens only, both themes.** Write hexes to named theme tokens (`primary`, `secondary`,
   `on-surface`, …) in **both** `light` and `dark`. Never introduce a raw hex into a component or
-  screen. For dark, derive a legible variant (lift primary for contrast on navy) rather than
-  copying the light hex blindly — match the pattern already in the dark theme block.
-- **Preserve the control-panel comments.** `vuetify.ts` documents each hex inline. Edit the
-  value in place; keep (and update) the trailing comment. Do not restructure the file.
-- **Don't touch what wasn't asked.** Surfaces, emphasis/state opacities, spacing, and type
-  stay as-is unless a quiz branch explicitly covers them.
-- **Restart note.** Radius changes are Sass → tell the designer to restart `corepack pnpm dev`
-  (colors and identity hot-reload; radius does not).
-
-## The quiz
-
-Two free-text questions, then a **guided walkthrough of every color and every radius** — one
-token at a time, each with a short plain-language explanation of what it controls and a
-**Keep / Change** choice. "Keep" leaves the current value untouched; "Change" (the "Other"
-field) takes a new hex or px. Nothing is skipped silently — the designer sees each token and
-decides. **Read the current values live from `vuetify.ts` and `settings.scss` first** so every
-"Keep" option shows the real current value.
-
-### Part 1 — identity (free text)
-
-1. **Project name** → `identity.name` + `{{PROJECT_NAME}}` (also ask a short/wordmark form →
-   `identity.shortName` + `{{PROJECT_SHORT_NAME}}`; default it to the name).
-2. **Project description** → `identity.description` + `{{PROJECT_DESCRIPTION}}` (optionally a
-   tagline → `identity.tagline` + `{{PROJECT_TAGLINE}}`).
-3. **What is this product?** — one line naming the domain → `{{PROJECT_DOMAIN}}` in `CLAUDE.md`.
-   Ask what it *is* (a healthcare platform, an internal admin tool, a consumer finance app…) and
-   whether that domain carries rules — regulated data, safety-critical figures, financial
-   accuracy, minors, accessibility mandates. Write those rules into `CLAUDE.md`'s **Domain rules**
-   section, which currently holds only the domain-agnostic ones. This is the answer that most
-   changes how every later screen gets built; don't let it go unanswered.
-4. **Package slug** → `{{PROJECT_SLUG}}` in `package.json`. Derive it from the name
-   (lowercase, hyphens, npm-safe) and offer it as the default rather than asking cold.
-
-### Part 2 — colors, one token at a time
-
-Walk through the tokens **in this order**, each as a question whose options are
-`Keep <current hex> (<role name>)` and `Change…`. Batch them a few per **AskUserQuestion** call
-(up to 4 questions per call) so it isn't 11 separate round-trips. Give each the one-line
-"what it's for" below as the question text. Every answer is recorded in `brand.ts` and, if
-changed, written to **both** the light and dark theme in `vuetify.ts` (derive a legible dark
-counterpart — don't copy the light hex onto navy).
-
-| # | Token | What it controls (say this) |
-|---|---|---|
-| 1 | `primary` | The main brand color — primary buttons, links, active/selected states, and the branded checkbox/radio/switch. |
-| 2 | `secondary` | The supporting accent — secondary emphasis and lighter brand moments. |
-| 3 | `on-surface` | The default text and icon color for the whole app — every label, heading and body line that isn't given its own color. Light theme wants a near-black brand ink; dark wants its near-white counterpart. |
-| 4 | `success` | Positive confirmation — "saved", success states, healthy indicators. |
-| 5 | `error` | Errors and destructive actions — failed validation, delete, danger. |
-| 6 | `warning` | Caution and alerts — something needs attention but isn't an error. |
-| 7 | `info` | Neutral informational accents — tips, info banners. |
-| 8 | `surface-wash-1` | Decorative gradient tint A — the sign-in mesh and messaging backdrop (background only, never text). |
-| 9 | `surface-wash-2` | Decorative gradient tint B — the second hue in that same gradient. |
-
-Then **one gate** for the app's surfaces (advanced): "Want to adjust the neutral surfaces —
-app background, card surface, the deep navy-slate `surface-variant` — or keep them?" Only if
-**yes**, walk `background`, `surface`, `surface-variant` the same Keep/Change way. Default is
-keep; most rebrands leave surfaces alone.
-
-The paired `*-darken-1` hover/pressed shades are **auto-derived** from their base (a true
-darker shade) — mention this, don't ask a separate question for them.
-
-### Part 3 — radii, one step at a time
-
-Walk through the `$rounded` scale, each as a `Keep <current px>` / `Change…` question, batched
-a few per AskUserQuestion call. `pill` (9999px) and `circle` (50%) are structural — state that
-they stay and don't ask. Read current values from `settings.scss` first.
-
-| Step | Current | What it controls (say this) |
-|---|---|---|
-| `$border-radius-root` | 4px | The base radius everything derives from; the bare `rounded` fallback. |
-| `sm` | 12px | Small elements — compact rows, small chips, tight controls. |
-| `md` | 16px | **The default content-card radius** (any card with no explicit `rounded`). |
-| `lg` | 24px | Larger surfaces and section panels. |
-| `xl` | 48px | Extra-round large panels. |
-| `2xl` | 52px | The roundest tier — big panels, chat bubbles, alerts. |
-
-**Always start with the preset shortcut:** before the per-step walk, offer a one-tap starting
-point — "Apply a Sharp / Soft / Round preset to all six, then fine-tune?" — using the presets
-below. If they pick a preset, pre-fill the six steps from it and still walk each for tuning; if
-they choose "tune each", go step by step from the current values.
-
-| Preset | root | `sm` | `md` | `lg` | `xl` | `2xl` | Feel |
-|---|---|---|---|---|---|---|---|
-| **Sharp** | 2px | 4px | 6px | 8px | 12px | 16px | crisp, technical |
-| **Soft** | 4px | 8px | 10px | 12px | 16px | 20px | gentle, Material-ish |
-| **Round** | 4px | 12px | 16px | 24px | 48px | 52px | pillowy — the template's stock feel |
-
-### Wrap up
-
-After the walkthrough, **echo a summary** — name, and every token/step with its final value,
-flagging which changed vs. kept — and confirm before writing anything.
-
-## Applying the answers (order matters)
-
-1. **`src/data/brand.ts`** — rewrite `brand.identity` (replacing its tokens) and the
-   `brand.colors` / `brand.radius` records to match every answer (this is the preset; keep it
-   truthful to what you write to the control files).
-2. **Replace every `{{TOKEN}}`:**
-   - `index.html`, `storybook.html` → the name, in the `<title>`
-   - `package.json` → the slug, in `name`
-   - `README.md` → name + description in the heading/blockquote
-   - `CLAUDE.md` → name, description, and domain in the **What this is** blockquote
-3. **Delete every `TEMPLATE-ONLY` block** — marker pair and all content between. Run the grep
-   below to find them; don't work from a memorized list, since the blocks move as the repo
-   evolves. Handle each one:
-   - `CLAUDE.md` → delete all blocks **except** the **Domain rules** one, which you *replace*
-     with the real domain rules from Part 1 question 3. If the domain carries no special rules,
-     say so in one line rather than leaving the block.
-   - `README.md` → delete the block (unconfigured intro, token table, verification greps, the
-     no-logo note).
-   - `src/data/brand.ts` → delete the blocks; the surrounding header comment explaining
-     live-vs-record fields **stays** — it's true forever.
-4. **`src/plugins/vuetify.ts`** — set `primary` (and `secondary`/exceptions if chosen) in the
-   **light** colors, updating each inline comment; then set the legible **dark** counterparts.
-5. **`src/styles/settings.scss`** — apply the radius preset to `$border-radius-root` + `$rounded`.
-6. **Verify — both greps must come back empty:**
-   ```bash
-   grep -rn '{{[A-Z_]*}}'  --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude .
-   grep -rn 'TEMPLATE-ONLY' --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude .
-   ```
-   A hit in the second grep means scaffolding survived — the project would ship describing
-   itself as an unconfigured template. Fix before moving on.
-7. **Type-check**: `node_modules/.bin/vue-tsc --build` (from the repo root).
-8. **Tell the designer**, in this order:
-   - colors + name are live on hot-reload; **restart `corepack pnpm dev`** for the radius change
-   - **there is still no logo** — the template ships none on purpose. Building the lockup as a
-     component in `src/components/` is a follow-up the quiz can't do; say so plainly rather than
-     letting them discover it later.
-   - **`CLAUDE.md`'s "What the template ships" section is now partly stale** — it described a
-     repo with no screens. It gets rewritten naturally as the first screens land; flag it so
-     nobody trusts "a blank RouterView is expected" while debugging a real routing problem.
+  screen. Derive a legible dark counterpart rather than copying the light hex.
+- **Status colors are reserved for state** — `success` / `error` / `warning` / `info` are never a
+  decorative or data-series color.
+- **Chart colors are validated, not chosen by eye.** `src/data/chartTheme.ts` documents in its
+  header why each hex and the categorical *order* are what they are (colorblind separation against
+  both surfaces). If you're retuning them, load the `dataviz` skill and re-validate — no repo
+  validator ships. Never duplicate ink/surface/status into that file; the composable reads those
+  live from the theme.
+- **Component defaults are props, not hand-rolled CSS.** Set the look in `vuetify.ts` → `defaults`;
+  reach for `settings.scss` only for raw dimensions no prop can express.
+- **A font is three edits or it's zero.** The dependency, the `vite.config.mts` loader entry and
+  `$body-font-family` must name the same family, spelled identically. Two out of three fails
+  *silently* — the app renders in system sans-serif and nothing errors. Never set
+  `$body-font-family` to a family that isn't loaded, and never write a `font-family` declaration
+  into a component, a screen, or `overrides.css` to work around it.
+- **One family, app-wide.** Headings inherit the body font and charts read it off the rendered
+  page. Don't add a second family (or a per-screen font) unless the designer asks — each one is
+  another download on every page load.
+- **Preserve the control-panel comments.** `vuetify.ts` documents each hex inline; edit the value
+  in place and update the comment. Do not restructure the file.
+- **Don't touch what wasn't asked.** Surfaces, emphasis/state opacities, spacing, and type stay
+  as-is unless the designer raises them.
+- **Restart note.** Radius and the font family (both `settings.scss` / `_tokens.scss`) are Sass →
+  restart `corepack pnpm dev`. Theme colors, component defaults, the chart palette and identity all
+  hot-reload.
 
 ## Re-running / presets
 
-Because every choice is recorded in `src/data/brand.ts`, "apply the brand preset" means: read
-that file and re-apply `colors`/`radius` to the two control files — no quiz needed. A future
-project can copy a filled-in `brand.ts` in as its starting preset, then run this quiz only for
-the fields it wants to change.
+Because every choice is recorded in `src/data/brand.ts`, "apply the brand preset" means: read that
+file and re-apply `colors`/`radius`/`typography` to the control files — no intake needed. A future
+project can copy a filled-in `brand.ts` in as its starting preset, then run this skill only for
+what changed. Note the font is the one preset field that also needs an **install**
+(`corepack pnpm add @fontsource/<slug>`) — re-applying it is step 4's four edits, not a
+find-and-replace.

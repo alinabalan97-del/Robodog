@@ -14,15 +14,15 @@ importers:
       '@carbon/pictograms':
         specifier: ^12.80.0
         version: 12.80.0
+      '@fontsource/archivo':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@fontsource/inter':
         specifier: ^5.3.0
         version: 5.3.0
       '@fontsource/roboto':
         specifier: ^5.2.10
         version: 5.2.10
-      '@fontsource/urbanist':
-        specifier: ^5.2.7
-        version: 5.2.7
       echarts:
         specifier: ^6.1.0
         version: 6.1.0
@@ -140,14 +140,14 @@ packages:
   '@emnapi/wasi-threads@1.2.1':
     resolution: {integrity: sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w==}
 
+  '@fontsource/archivo@5.3.0':
+    resolution: {integrity: sha512-5DIMgPVJRi62OqdOVoogCFxP73EkNM/E0YVTSDIQlDEJfDbxqZduwM/YoNZwC9Sx1CDgpKinqf8ckRY1QNIecw==}
+
   '@fontsource/inter@5.3.0':
     resolution: {integrity: sha512-RofMylZmjlJEfELXeNHFWBRcSs75rGU/6bV2S2jfnvv/3rPXPGe0LgUJTklcHZ9lM4OZmAVFhcJPnACfb91A3g==}
 
   '@fontsource/roboto@5.2.10':
     resolution: {integrity: sha512-8HlA5FtSfz//oFSr2eL7GFXAiE7eIkcGOtx7tjsLKq+as702x9+GU7K95iDeWFapHC4M2hv9RrpXKRTGGBI8Zg==}
-
-  '@fontsource/urbanist@5.2.7':
-    resolution: {integrity: sha512-tZE4qBBu+VBpfw8yMeLl6fzbY1sb4dnACXZLzlInp1KNONks47G/OYPY8yZajpeFQudLZlpVJu3xfS1Ph/QaFg==}
 
   '@ibm/telemetry-js@1.11.0':
     resolution: {integrity: sha512-RO/9j+URJnSfseWg9ZkEX9p+a3Ousd33DBU7rOafoZB08RqdzxFVYJ2/iM50dkBuD0o7WX7GYt1sLbNgCoE+pA==}
@@ -1486,11 +1486,11 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
+  '@fontsource/archivo@5.3.0': {}
+
   '@fontsource/inter@5.3.0': {}
 
   '@fontsource/roboto@5.2.10': {}
-
-  '@fontsource/urbanist@5.2.7': {}
 
   '@ibm/telemetry-js@1.11.0': {}
 

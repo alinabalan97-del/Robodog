@@ -1,5 +1,5 @@
 {
-  "name": "{{PROJECT_SLUG}}",
+  "name": "robodog",
   "private": true,
   "type": "module",
   "version": "0.0.0",
@@ -15,9 +15,9 @@
   "dependencies": {
     "@carbon/icons-vue": "^10.130.0",
     "@carbon/pictograms": "^12.80.0",
+    "@fontsource/archivo": "^5.3.0",
     "@fontsource/inter": "^5.3.0",
     "@fontsource/roboto": "^5.2.10",
-    "@fontsource/urbanist": "^5.2.7",
     "echarts": "^6.1.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.30",

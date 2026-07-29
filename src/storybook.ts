@@ -25,6 +25,7 @@ import Storybook from '@/screens/Storybook.vue'
 // Same global styles the product loads (fonts + Vuetify-quirk overrides), so
 // the preview matches the app pixel-for-pixel.
 import 'unfonts.css'
+import '@/styles/css-tokens.scss'
 import '@/styles/overrides.css'
 
 const app = createApp(Storybook)

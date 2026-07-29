@@ -1,0 +1,62 @@
+/**
+ * src/styles/_tokens.scss
+ *
+ * ⚙️  RAW SCALE VALUES — the numbers `settings.scss` feeds into Vuetify.
+ *
+ * WHY THIS FILE EXISTS
+ * Vuetify configures itself through `@use 'vuetify/settings' with (…)`, and a
+ * Sass configuration map CANNOT reference the variables it is configuring:
+ *
+ *     @use 'vuetify/settings' with (
+ *       $border-radius-root: 8px,
+ *       $rounded: ('md': $border-radius-root),   // ✗ not in scope — compile error
+ *     );
+ *
+ * So every value in that block had to be a hardcoded literal, and Vuetify's two
+ * radius channels — the named `$rounded` scale, and the ~29 per-component vars
+ * that default to `$border-radius-root` — silently drifted apart whenever the
+ * scale was retuned. (Stock Vuetify derives BOTH from the root, so they can't
+ * diverge; hardcoding the map is what breaks the link.)
+ *
+ * A separate module CAN be referenced, because it's already loaded by the time
+ * the `with(…)` block is evaluated. That's the whole trick: define the numbers
+ * here, reference them there, and the two channels move together again.
+ *
+ * ── EDITING THE RADIUS PERSONALITY ──
+ * Change the five values below and the entire app follows: the `rounded-*`
+ * utilities, every `rounded` prop, AND the dialogs / menus / snackbars /
+ * tooltips / expansion panels that have no `rounded` prop to pass.
+ * Needs a DEV-SERVER RESTART (Sass is build-time).
+ *
+ * ⚠️ Two invariants are enforced by construction in settings.scss — don't
+ * break them by hand:
+ *   • `$border-radius-root` == `$radius-md`  (Vuetify's own relationship: the
+ *     unclassed component fallback IS the mid step)
+ *   • the `null` map key   == `'md'` map key (Vuetify keys the BARE `.rounded`
+ *     class off `null`, NOT off `md` — they must be equal or the two classes
+ *     render different corners)
+ *
+ * Reaching the CSS side: `css-tokens.scss` republishes these as `--radius-*`
+ * custom properties, so plain CSS and .vue `<style>` blocks track the scale too
+ * (that's how `--section-radius` in overrides.css stays in step). Nothing about
+ * radius should need hand-syncing.
+ */
+
+$radius-sm: 4px; // opt-in only — `rounded="sm"`; no component defaults here
+// ⭐ the default tier — ALSO $border-radius-root, so it reaches cards, buttons,
+//    inputs, dialogs, menus, snackbars, tooltips and label chips
+$radius-md: 8px;
+$radius-lg: 12px; // the select / autocomplete / combobox popups
+$radius-xl: 16px;
+$radius-2xl: 24px; // section panels, large surfaces
+
+// ── TYPE FAMILIES ───────────────────────────────────────────────────────────
+// The heading stack lives here (not in settings.scss) for the same reason the
+// radius steps do: settings.scss configures Vuetify via `with(...)`, which
+// cannot also be read back out. Publishing it from this module lets BOTH
+// settings.scss ($heading-font-family) and css-tokens.scss (--heading-font)
+// name the family once.
+//
+// ⚠️ This must match the family registered in vite.config.mts exactly, spelling
+// and case. Two out of three fails silently — the app renders in the body font.
+$font-heading: ('Archivo', sans-serif);

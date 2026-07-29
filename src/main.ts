@@ -15,6 +15,9 @@ import App from './App.vue'
 
 // Styles
 import 'unfonts.css'
+// The Sass radius scale, republished as CSS custom properties (--radius-*) so
+// plain CSS can read it. Must precede overrides.css, which consumes them.
+import './styles/css-tokens.scss'
 // Global Vuetify-quirk overrides — imported last so it wins over component CSS.
 import './styles/overrides.css'
 

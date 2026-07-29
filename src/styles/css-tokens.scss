@@ -1,0 +1,34 @@
+/**
+ * src/styles/css-tokens.scss
+ *
+ * ⚙️  BRIDGE — republishes the Sass radius scale as CSS custom properties, so
+ * plain CSS (`overrides.css`) and .vue `<style>` blocks can read it:
+ *
+ *     .thing { border-radius: var(--radius-md); }
+ *
+ * The scale itself, and why it lives in its own module, is documented in
+ * ./_tokens.scss — read that first.
+ *
+ * Imported by `main.ts` and `storybook.ts`, both times BEFORE `overrides.css`
+ * (which consumes `--radius-2xl`). It's a plain stylesheet import, deliberately
+ * outside the `vuetify/settings` config graph, so this `:root` block is emitted
+ * once rather than duplicated into every component's compiled Sass.
+ *
+ * ⚠️ Pure re-export — never write a px literal here; that recreates the
+ * duplicate this file exists to remove. New step? Add it to `_tokens.scss`
+ * first, then forward it. (`pill` and `circle` are constants, not steps —
+ * Vuetify's own utilities cover them.)
+ */
+
+@use './tokens' as t;
+
+:root {
+  --radius-sm: #{t.$radius-sm};
+  --radius-md: #{t.$radius-md};
+  --radius-lg: #{t.$radius-lg};
+  --radius-xl: #{t.$radius-xl};
+  --radius-2xl: #{t.$radius-2xl};
+  /* Heading family, so scoped <style> blocks can set it without naming Archivo
+     a fourth time. Body type needs no var — it is inherited. */
+  --heading-font: #{t.$font-heading};
+}

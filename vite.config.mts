@@ -30,11 +30,17 @@ export default defineConfig({
             styles: ['normal'],
           },
           {
-            name: 'Urbanist',
-            weights: [100, 300, 400, 500, 700, 900],
+            // Heading font (see $heading-font-family in src/styles/settings.scss).
+            // The Figma type ramp uses Archivo SemiBold for section headings; the
+            // body stays Inter. Only 600 is referenced today — 400/500/700 are
+            // loaded so the scale has room without a second wiring pass.
+            name: 'Archivo',
+            weights: [400, 500, 600, 700],
             styles: ['normal'],
           },
           {
+            // Vuetify's own default family and the last-resort fallback — keep it
+            // registered even though $body-font-family names Inter.
             name: 'Roboto',
             weights: [100, 300, 400, 500, 700, 900],
             styles: ['normal', 'italic'],

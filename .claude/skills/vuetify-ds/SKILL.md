@@ -32,7 +32,7 @@ The design system is the **styling configuration**, not a fixed list of componen
 |---|---|---|---|
 | **Theme** | `src/plugins/vuetify.ts` → `theme.themes` | Brand color palette (light + dark) + theme variables (border/emphasis/state opacities) | **Hot-reload** |
 | **Defaults** | `src/plugins/vuetify.ts` → `defaults` | Default look of each component (variant, shape, size, density…) | **Hot-reload** |
-| **Style scales** | `src/styles/settings.scss` | Radius, spacing, sizing, type — build-time Sass vars | **Restart dev server** |
+| **Style scales** | `src/styles/settings.scss` (radius numbers in `_tokens.scss`) | Radius, spacing, sizing, type — build-time Sass vars | **Restart dev server** |
 
 This config styles the **entire Vuetify 4 component library uniformly**. Any `<v-...>` you drop
 into a screen automatically inherits these colors, radii, spacing, and defaults — you do **not**
@@ -194,10 +194,13 @@ Switch theme at runtime via `useTheme()` (`theme.global.name.value = 'dark'`) �
 
 ## Radius
 
-One shared scale (`$rounded` map in `settings.scss`), same tokens for every component that accepts
-`rounded`: `0` · `sm` 12 · `rounded`/`md` 16 · `lg` 24 · `xl` 48 · `2xl` 52 · `pill` 9999 ·
-`circle` 50%. Apply with the **`rounded` prop** (`<v-card rounded="pill">`) or the **utility class**
-(`class="rounded-lg"`). To reshape the whole scale, edit the `$rounded` map (then restart).
+One shared scale (the `$radius-*` vars in `src/styles/_tokens.scss`, referenced by the `$rounded`
+map in `settings.scss` — **edit the tokens file, not the map**), same tokens for every component that accepts
+`rounded`: `0` · `sm` · `rounded`/`md` · `lg` · `xl` · `2xl` · `pill` (9999) · `circle` (50%).
+At the time of writing the five steps are 4 / 8 / 12 / 16 / 24 px — **read `_tokens.scss` before
+quoting a number**, or open the Storybook's *Radius* row, which renders the live values. Apply with the **`rounded` prop** (`<v-card rounded="pill">`) or the **utility class**
+(`class="rounded-lg"`). To reshape the whole scale, edit the five `$radius-*` values in
+`_tokens.scss` — never the `$rounded` map, which only references them (then restart).
 
 ### Card radius: two tiers, both variable-driven — attach these, don't hardcode
 
@@ -206,10 +209,10 @@ wire a card to its tier — never pin a raw `rounded` value on a card that belon
 
 | Tier | What it is | How to attach | Variable |
 |---|---|---|---|
-| **Content card** | the cards a user reads (concern, step, product, panel) | **omit `rounded`** — it inherits the default | `VCard: { rounded: 'md' }` (16px) in `vuetify.ts` |
-| **Section panel** | the outer `bg-background-*` containers that WRAP content | add **`class="section-panel"`** (no `rounded`) | `--section-radius` (24px) in `overrides.css` |
+| **Content card** | the cards a user reads (concern, step, product, panel) | **omit `rounded`** — it inherits the default | `VCard: { rounded: 'md' }` (8px) in `vuetify.ts` |
+| **Section panel** | the outer `bg-background-*` containers that WRAP content | add **`class="section-panel"`** (no `rounded`) | `--section-radius` in `overrides.css` (points at `--radius-2xl`) |
 
-The two tiers keep nesting concentric (24 outside, 16 inside), and each moves from a single edit. A
+The two tiers keep nesting concentric (24 outside, 8 inside), and each moves from a single edit. A
 section panel is itself a `v-card`/`v-sheet`, so it can't carry its own `VCard` default — that's why
 it attaches via the `.section-panel` class instead of a prop.
 
@@ -234,8 +237,10 @@ w-100`. Copy these patterns from `Storybook.vue` rather than writing custom CSS.
 
 ## Type
 
-Font is **Onest** (`$body-font-family` in `settings.scss`; loaded via `unplugin-fonts`). Use
-typography utility classes, never raw font-size.
+Font is **Inter** (`$body-font-family` in `settings.scss`; loaded via `unplugin-fonts`). Use
+typography utility classes, never raw font-size. Swapping the family is `/new-project` step 4 —
+it takes three files in sync (the `@fontsource/*` dep, `vite.config.mts`, `settings.scss`), so
+never change `$body-font-family` on its own.
 
 ⚠️ **Vuetify 4 uses the MD3 type scale.** The classes that actually apply a size are
 `text-{display|headline|title|body|label}-{large|medium|small}` (15 steps). The **legacy
@@ -310,7 +315,8 @@ stamp `.v-…--active`, and style that class once (or let `color` on the parent 
 1. Iterate look in **`Storybook.vue`** (`corepack pnpm dev:storybook`, port 3001); toggle
    light/dark + density to check every state.
 2. Change **colors / defaults** in `vuetify.ts` (hot-reload) — verify in the Storybook.
-3. Change **radius / spacing / type** in `settings.scss` — **restart `corepack pnpm dev`**.
+3. Change **radius** in `_tokens.scss`, **spacing / type** in `settings.scss` — **restart
+   `corepack pnpm dev`**.
 4. Build screens via the **selection logic** above; when you adopt a new Vuetify component, add it
    to the Storybook preview.
 5. Check live token values any time in the Storybook's **Colors** and **Spacing, radius & sizing**
@@ -330,7 +336,9 @@ stamp `.v-…--active`, and style that class once (or let `color` on the parent 
 - Don't pin a card's radius — a section container gets `class="section-panel"`, a content card gets
   no `rounded` (inherits `md`). Set `rounded="…"` only for a deliberate one-off the user asked for.
 - Don't put color in `settings.scss` (Sass/build-time) or raw Sass dimensions in `vuetify.ts`.
-- Don't forget to restart the dev server after editing `settings.scss`.
+- Don't forget to restart the dev server after editing `settings.scss` or `_tokens.scss`.
+- Don't hardcode a radius px in CSS or a `<style>` block — use `var(--radius-sm…2xl)`, published
+  from the Sass scale by `src/styles/css-tokens.scss`. Never add a px literal to that bridge file.
 - **Don't uppercase text unless the user explicitly asks.** No `text-uppercase` utility, no
   all-caps string literals, no `text-transform: uppercase` in CSS. Write labels, eyebrows, section
   headers, buttons, and chips in sentence case (or Title Case where a proper name warrants it).

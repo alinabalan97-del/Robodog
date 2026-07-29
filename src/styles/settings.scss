@@ -9,7 +9,15 @@
  *
  * Values shown are Vuetify 4.1.2 defaults. Full per-component knob list:
  * src/styles/sass-variables-reference.md
+ *
+ * ⚠️ The RADIUS numbers live in ./_tokens.scss, not here — a Sass `with(…)`
+ * block can't reference the variables it configures, so the scale and
+ * $border-radius-root could only be coupled via a separate module. Read that
+ * file's header before retuning radius; edit the five values there, not the
+ * references below.
  */
+
+@use './tokens' as t;
 
 @use 'vuetify/settings' with ( // ── SPACING ──────────────────────────────────────────────
   // Base unit behind every ma-*/pa-* utility and most component padding.
@@ -18,23 +26,32 @@
   // $grid-gutter: 24px,        // default $spacer * 6  →  gap between <v-col>
 
   // ── RADIUS ───────────────────────────────────────────────
-  // Base radius. The named scale below is the source of truth:
-  //   sm = 2px · md (bare `rounded`) = 4px · lg = 8px · xl = 16px · 2xl = 24px
-  //   pill = 9999px · circle = 50%
-  $border-radius-root: 4px, // default 4px
-  // Full radius scale. NOTE: values must be explicit px here (the `with(...)`
-  // block can't reference $border-radius-root). `xl` is the default card radius
-  // (16px); `2xl` (24px) is the previous `xl`, kept for larger panels/bubbles.
+  // ⚠️ EDIT THE VALUES IN ./_tokens.scss, NOT HERE. Every reference below is
+  // deliberate — the indirection is what keeps Vuetify's two radius channels in
+  // step, so don't "simplify" one back to a px literal.
+  // Vuetify's stock scale, for comparison: sm 2 · md (and null) 4 · lg 8 · xl 24;
+  // stock has NO `2xl` — that key is this template's addition.
+  //
+  // CHANNEL 2: the fallback for the ~29 per-component radius vars — dialog,
+  // menu, snackbar, tooltip, expansion panel, label chip, pagination, picker,
+  // skeleton, tab-inset — i.e. every surface with no `rounded` prop to pass.
+  // Bound to $radius-md so those land on the content-card tier instead of
+  // stranding at Vuetify's stock 4px while the rest of the app is 8–24px.
+  $border-radius-root: t.$radius-md, // default 4px
+  // CHANNEL 1: the named scale behind the `rounded` prop and `rounded-*` utils.
+  // Vuetify keys the BARE `.rounded` class off the `null` entry, not off `md` —
+  // both bind to $radius-md here so the two classes can't render differently.
   $rounded: (
     0: 0,
-    'sm': 12px,
-    'md': 16px,   // the bare `rounded` class (md)
-    'lg': 24px,
-    'xl': 48px,  // card radius (was 24px)
-    '2xl': 52px, // previous `xl` — large panels, chat bubbles, alerts
+    'sm': t.$radius-sm,
+    null: t.$radius-md,  // the bare `rounded` class — same var as `md`, by design
+    'md': t.$radius-md,  // the VCard content-card tier
+    'lg': t.$radius-lg,  // the input tier — see the field-label note in overrides.css
+    'xl': t.$radius-xl,
+    '2xl': t.$radius-2xl, // also reaches --section-radius (overrides.css) via css-tokens.scss
     'pill': 9999px,
     'circle': 50%,
-    'shaped': 24px 0,
+    'shaped': t.$radius-2xl 0,
   ),
 
   // ── CARD PADDING ─────────────────────────────────────────
@@ -47,22 +64,33 @@
   $card-item-padding: 1rem, // default .625rem 1rem (10px / 16px)
 
   // ── SELECT / COMBOBOX / AUTOCOMPLETE POPUP ───────────────
+  // ⚠️ THREE PAIRS, NOT ONE. Vuetify gives VSelect, VAutocomplete and VCombobox
+  // each their OWN radius + elevation var (all stock 4px / 2) — they do NOT read
+  // a shared one and they do NOT fall back to $border-radius-root. Setting only
+  // the select pair leaves the other two popups boxy and flatter, right next to
+  // it in the same form. Retune all three together or they visibly drift.
+  //
   // The dropdown a v-select opens is NOT the hand-composed v-menu the account /
   // cart / notification menus use — the field generates its own popup, styled
-  // only by these two Sass vars. Vuetify's stock defaults (4px radius, elevation
+  // only by these Sass vars. Vuetify's stock defaults (4px radius, elevation
   // 2) read boxy and flat next to those bespoke menus (rounded="lg", elevation
   // "6"). Bring them up to the same treatment so every auto-generated dropdown
-  // matches. Radius = the `lg` step (8px). Scope: `.v-select__content` only —
+  // matches. Radius = the `lg` step (12px) — the same step the fields themselves
+  // sit on. Scope: the `.v-{select,autocomplete,combobox}__content` popups only —
   // v-menu/v-card menus and in-page lists are untouched.
   //
   // Elevation MUST stay 1–5: Vuetify 4's shadow map only defines 0–5, so 6+ emit
   // a surface tint but NO box-shadow (that's why the popup had no shadow at 6).
-  // 3 matches $menu-elevation — the shadow every other menu uses — so the select
-  // popup casts the same shadow as the account/cart/notification menus. It lands
-  // on the OUTER .v-select__content (unclipped); the inner sheet's own shadow is
+  // 3 matches $menu-elevation — the shadow every other menu uses — so these
+  // popups cast the same shadow as the account/cart/notification menus. It lands
+  // on the OUTER .v-*__content (unclipped); the inner sheet's own shadow is
   // eaten by that element's overflow:hidden, which is why the field must set it.
-  $select-content-border-radius: 12px, // default 4px  →  matches rounded="lg"
-  $select-content-elevation: 3,       // default 2    →  matches $menu-elevation (real shadow; 6 = none)
+  $select-content-border-radius: t.$radius-lg,       // default 4px  →  matches rounded="lg"
+  $select-content-elevation: 3,                      // default 2    →  matches $menu-elevation (real shadow; 6 = none)
+  $autocomplete-content-border-radius: t.$radius-lg, // keep in step with the select pair above
+  $autocomplete-content-elevation: 3,
+  $combobox-content-border-radius: t.$radius-lg,     // keep in step with the select pair above
+  $combobox-content-elevation: 3,
 
   // ── SHADOWS / ELEVATION ──────────────────────────────────
   // Vuetify's stock elevation is "hard": the key shadow is near-opaque (0.3) with
@@ -106,6 +134,10 @@
   // $font-size-root: 16px,     // default 1rem  →  root rem basis for all type
   // $line-height-root: 1.5,    // default 1.5
   $body-font-family: ('Inter', sans-serif),
+  // Section headings only. The Figma ramp pairs Archivo SemiBold with an Inter
+  // body — the two families must BOTH stay registered in vite.config.mts or this
+  // silently falls back to the body font. Family named once, in _tokens.scss.
+  $heading-font-family: t.$font-heading,
 
   // ── FIELDS ───────────────────────────────────────────────
   // Idle border/underline opacity for every outlined/filled/underlined form field
@@ -113,4 +145,16 @@
   // and hover (high-emphasis) are pinned separately, so this only softens the
   // resting state. Doesn't touch labels/text or non-field borders.
   $field-outline-opacity: 0.16, // default 0.38
+
+  // Focused border stays a hairline instead of doubling to 2px. Stock Vuetify
+  // signals focus with THICKNESS (1px → 2px), which reads heavy against the soft
+  // 0.16 resting border above and makes the field visibly grow on focus. At 1px
+  // the geometry holds still and the whole focus signal is the opacity jump —
+  // 0.16 → 1 on the same hairline. That contrast step is large enough to read on
+  // its own; fields carry no `color` default, so focus stays in the text colour.
+  // ⚠️ This makes the resting opacity above load-bearing: raise $field-outline-opacity
+  // much past 0.16 and the two states start converging, since nothing else moves.
+  // Also covers the filled/underlined focused underline (same var). Does NOT touch
+  // the error state, which signals via colour + opacity, not width.
+  $field-focused-border-width: 1px, // default 2px
 );

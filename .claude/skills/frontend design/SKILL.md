@@ -22,7 +22,7 @@ DS's parts — not the parts themselves.
 Before any of the judgment below, the non-negotiable constraint:
 
 - **Color, type, radius, spacing, and component choice come from `vuetify-ds`** — theme tokens in
-  `vuetify.ts`, the Onest MD3 type scale, the shared radius/spacing scales, and Vuetify components.
+  `vuetify.ts`, the Inter MD3 type scale, the shared radius/spacing scales, and Vuetify components.
   **Never invent a hex palette, pair custom fonts, or hand-roll CSS** for something the DS or a
   Vuetify component already provides. If a screen needs a new color or shape, that's a DS change
   (via `new-project` / `vuetify.ts`), not a per-screen decision.

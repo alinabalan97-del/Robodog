@@ -4,50 +4,61 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-> **{{PROJECT_NAME}}** — {{PROJECT_DESCRIPTION}}
+> **Robodog** — a factory operations management platform for monitoring and coordinating production
+> in real time. Operators get a live view of the floor covering autonomous vehicles and their
+> missions alongside production lines, equipment health and throughput, from a single dashboard.
 >
-> Domain: {{PROJECT_DOMAIN}}
+> Domain: factory operations management — production lines, orders and throughput; equipment
+> utilization, health and maintenance; and an autonomous vehicle fleet (mission dispatch, routing,
+> battery, traffic) as one subsystem inside that broader picture. Its users are floor operators,
+> production teams and plant managers, working on wall displays and ruggedized tablets on the
+> floor itself.
 
-<!-- TEMPLATE-ONLY:start — /new-project deletes this whole block when it configures the repo -->
+The product name lives in `src/data/brand.ts` → `brand.identity`; screens import it, so a rename
+inside the app is one edit there. Files that can't import a TS module (`index.html`,
+`storybook.html`, `package.json`, `README.md`, this file) spell it out literally.
 
-**⚠️ This repo is an UNCONFIGURED PROJECT TEMPLATE.** The tokens above are placeholders. It ships a
-working design system, chart kit, and Storybook — but **no product screens and no product
-identity**. Both are built per project.
-
-**Before doing product work, check whether the template has been configured:**
-
-```bash
-grep -rn '{{[A-Z_]*}}' --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude .
-```
-
-`--exclude-dir=.claude` matters: the skills *document* the tokens in prose, so without it this
-check never comes back clean.
-
-If it returns hits, the project is still unconfigured. Run the **`/new-project`** skill — a short
-brand-intake quiz that fills in the identity, colors, and radius. Do not silently invent a product
-name, description, or domain to fill a token; either run the quiz or ask.
-
-The full token list is in `README.md`. The live one is `src/data/brand.ts` → `brand.identity`:
-screens import it, so a rename inside the app is one edit there. Files that can't import a TS
-module (`index.html`, `storybook.html`, `package.json`, `README.md`, this file) carry the literal
-token instead.
-
-**No stock logo ships.** A wordmark drawn as vector paths can't be find-and-replaced, so the
-template includes no logo component rather than baking another product's name into artwork. When
-you build one, put it in `src/components/` and bind `:aria-label="brand.identity.name"`.
-
-<!-- TEMPLATE-ONLY:end -->
+**No logo component exists yet.** When one is built, put it in `src/components/` and bind
+`:aria-label="brand.identity.name"` so the accessible name tracks the brand preset.
 
 ### Domain rules
 
-<!-- TEMPLATE-ONLY:start — replace with the real domain rules; keep the domain-agnostic list below -->
+Robodog renders the live state of **a working factory floor — moving machinery and running
+production lines, with people among them**. That makes the UI part of an operational safety loop,
+not a reporting surface. These are binding:
 
-`{{PROJECT_DOMAIN}}` is a placeholder for what this product actually is. **When `/new-project` sets
-the domain, write the domain-specific rules here** — the constraints that apply because of what the
-product does (regulated data, safety-critical figures, financial accuracy, minors, etc.). Until
-then, only the domain-agnostic rules below apply.
-
-<!-- TEMPLATE-ONLY:end -->
+- **Never present stale telemetry as live.** Vehicle position, battery, mission state, line status,
+  equipment health and alert status are all time-sensitive. Every live surface shows its own
+  freshness (last-updated / connection state) and visibly degrades — dimmed, badged "stale", or
+  explicitly disconnected — the moment the feed lags or drops. A frozen view that still looks live
+  is the worst failure this product can have.
+- **Commands are physical-world actions.** Dispatching, halting, rerouting, reassigning or
+  overriding a vehicle, and starting, pausing, holding or reconfiguring a line or piece of
+  equipment, all move real machinery. Each requires explicit confirmation naming the specific
+  vehicle, mission, line or asset affected — never a bare "Are you sure?", and never a bulk action
+  that fires without listing what it touches.
+- **Emergency stop is the one exception, and it is never behind a confirm.** If an e-stop or
+  equivalent safety halt is surfaced, it must be reachable in one action, visually distinct from
+  every other control, and impossible to trigger by accident (guarded by placement and size, not
+  by a dialog that costs seconds).
+- **State is never conveyed by color alone.** Alert severity, vehicle status, battery level, line
+  and order state, and equipment health each carry an icon, a label, or a shape alongside the color
+  — floor displays get glanced at, and a red/green-only view fails both colorblind operators and
+  bad lighting.
+- **Figures carry their units and their precision.** Battery %, charge time, speed, distance,
+  cycle time, units produced, throughput, downtime and utilization are read as decision inputs.
+  Label the unit, don't silently round a value someone is dispatching against, and never render a
+  computed estimate as a measurement.
+- **Separate what is measured from what is derived.** Counts and sensor readings are measurements;
+  OEE, availability, projected completion, ETA and "on track / behind" are calculations over a
+  window. Say which window, and never let a derived figure occupy the same visual slot as a
+  measured one without marking it.
+- **Every number, vehicle ID, order, line, floor plan and alert in the app is synthetic until a
+  real backend is wired in.** Keep mock data obviously fictional — it must never be mistakable for
+  a real facility's live state (see the API seam and `src/mocks/`).
+- **Operator ergonomics are a functional requirement.** These screens run on wall displays and
+  ruggedized tablets, read at distance and touched with gloves: generous hit targets, high
+  contrast, and no interaction that depends on hover alone.
 
 These hold for **every** project built on this template, whatever the domain:
 
@@ -66,21 +77,15 @@ the component-selection order, and the tokens-not-hex rule. If a request involve
 haven't loaded it, stop and load it.
 
 **Any chart, graph, plot, or dashboard visualization goes through the chart kit** in
-`src/components/charts` (Apache ECharts + `vue-echarts`). Never drop in a raw `<v-chart>`, and
-**never add a second charting library** (D3, Observable Plot, Chart.js, Carbon/Ant charts). The
-selection order and the theming rules live in `/vuetify-ds` → *Chart / data-viz selection logic*;
-the presets are `LineChart` · `BarChart` · `AreaChart` · `DonutChart` · `GaugeChart` ·
-`ScatterChart` · `RadarChart` · `HeatmapChart`, and `Storybook.vue`'s **Data viz** section shows
-correct usage of each.
+`src/components/charts` (Apache ECharts + `vue-echarts`) — never a raw `<v-chart>`, and
+**never a second charting library** (D3, Observable Plot, Chart.js, Carbon/Ant charts). Adding one
+is the failure this rule exists to prevent, so it's stated here rather than only in the skill.
 
-Two chart rules worth repeating here because breaking them is silent: colors/fonts/sizes come from
-`src/data/chartTheme.ts` alone — never a hardcoded chart hex/px — and **status colors
-(success/error/warning) are reserved for state, never a data-series color.**
-
-The `categorical` palette was validated colorblind-safe against the real light/dark surfaces and
-**its order is load-bearing.** If you add or reorder one, re-validate before shipping — load the
-`dataviz` skill for the method and its checker. **No validator script ships in this repo**, so
-"re-run the validator" means that skill, not a local file.
+Everything else about charts — the preset list, the selection order, `src/data/chartTheme.ts` as the
+only source of chart color/type, status-colors-are-for-state, and the load-bearing `categorical`
+palette order — lives in `/vuetify-ds` → *Chart / data-viz selection logic*, which the rule above
+already requires you to load. `Storybook.vue`'s **Data viz** section shows correct usage of each
+preset.
 
 ## Skills
 
@@ -125,8 +130,8 @@ node_modules/.bin/vue-tsc --build   # type-check only
 - **There is no test suite and no runnable linter.** `eslint.config.js` references
   `eslint-config-vuetify`, which is not installed and has no npm script. Don't claim tests/lint
   passed; type-check + a dev-server smoke check is the available verification.
-- After editing `src/styles/settings.scss`, **restart the dev server** (Sass is build-time; theme
-  colors and component defaults in `vuetify.ts` hot-reload).
+- After editing `src/styles/settings.scss` or `src/styles/_tokens.scss`, **restart the dev server**
+  (Sass is build-time; theme colors and component defaults in `vuetify.ts` hot-reload).
 
 ## Architecture
 
@@ -149,37 +154,47 @@ Stack: Vue 3 + Vite + TypeScript, **Vuetify 4**, Pinia, vue-router 5, MSW. Icons
 Their key maps are `src/icons/carbon.ts` and `src/icons/pictograms.ts`. Add a key there — never
 import a Carbon component straight into a screen.
 
-<!-- TEMPLATE-ONLY:start — rewrite as the project grows; most of this is false once screens exist -->
+### The base, and what Robodog hasn't built yet
 
-### What the template ships (and what it doesn't)
+⚠️ **Keep this section current — it describes the repo's present state, and parts of it go stale
+as screens land.** Update it in the same change that invalidates it.
 
-**Ships — treat as the stable base:** the design system (`src/plugins/vuetify.ts` + `src/styles/`),
-the chart kit (`src/components/charts/` + `chartTheme.ts` + `chartSamples.ts`), the Storybook, the
+**The stable base:** the design system (`src/plugins/vuetify.ts` + `src/styles/`),
+the chart kit (`src/components/charts/` + `src/data/chartTheme.ts` + `src/data/chartSamples.ts`
+— note the palette lives in `src/data/`, not in the charts folder), the Storybook, the
 brand preset (`src/data/brand.ts`), the two icon components above, and the seams (`src/api/`,
 `src/mocks/`, `src/stores/`, `src/router/`).
 
-**Does NOT ship — build per project:** product screens (`src/screens/` holds only `Storybook.vue`,
-which is not a route) · shared chrome (top bar, backdrop, nav shell) · a logo component · product
-datasets in `src/data/` · anything in `src/assets/`, which is empty.
+**Built so far:** one product screen — **`src/screens/FloorOps.vue`**, the live floor operations
+console, mounted at `/` as the `home` route. It owns its chrome (top bar, icon rail, snackbar) and
+composes `src/components/FloorMap.vue` (the SVG floor plan) and `src/components/MissionPanel.vue`
+(the mission rail) over the typed dataset `src/data/floorOps.ts`. `src/assets/` holds the wordmark
+(`Logo darkmode.svg`).
 
-Because there are no product screens, **`src/router/index.ts` ships an empty `routes` array.** The
-first screen you add is also the first route. The auth guard, session rehydration, and catch-all
-are intact and switch themselves on as routes appear: the guard keys off `meta.requiresAuth` /
-`meta.public` (not paths), each redirect is `hasRoute`-guarded so a missing target can't crash
-navigation, and the catch-all only registers once a route named `home` exists. Read that file's
-header before adding the first route.
+**Not built yet:** a **sign-in screen** · a reusable **logo component** (the wordmark is currently an
+`<img>` inline in `FloorOps.vue`) · the screens behind the nav rail's other icons · a light-theme
+logo variant.
 
-Until then `corepack pnpm dev` renders a blank `<RouterView>` and vue-router logs *"No match found
-for location /"*. **That is the expected unconfigured state, not a bug.** The Storybook on port
-3001 is unaffected — it doesn't use the router.
+⚠️ **There is no authentication in front of the console.** `/` is marked
+`meta: { requiresAuth: true }`, but the guard's `hasRoute(SIGNIN_ROUTE)` check means a missing
+sign-in route lets navigation through rather than crashing — so the screen is reachable
+unauthenticated. That is deliberate mid-build scaffolding, **not** a guard to rely on. Build sign-in
+before this is exposed anywhere real.
 
-<!-- TEMPLATE-ONLY:end -->
+The guard keys off `meta.requiresAuth` / `meta.public` (not paths), and the catch-all registers now
+that a route named `home` exists. Read `src/router/index.ts`'s header before adding routes.
 
 ### Boot chain
 
 `main.ts` → (dev only) `await startMocks()` from `src/mocks/browser.ts` so the very first API call
 is intercepted → `createApp(App)` → `registerPlugins()` (`src/plugins/index.ts`: vuetify, then
 Pinia, then **router last** because its auth guard reads the auth store) → mount.
+
+⚠️ **That `await startMocks()` has no `catch`.** If the MSW service worker fails to register or
+never resolves, `bootstrap()` rejects and the app never mounts — a silently blank page with nothing
+in the console. This reproduces under headless Chrome. It is dev-only (`import.meta.env.DEV`), so
+`corepack pnpm build && corepack pnpm preview` skips MSW entirely and is the reliable way to view
+the app when the worker misbehaves.
 
 `App.vue` is nearly empty by design: just a `<RouterView>`. Screens are reached through the router,
 not through `App.vue`.
@@ -249,7 +264,7 @@ added per project.
 |---|---|---|
 | A **full screen / page** | `src/screens/` | One `.vue` per screen; declare its own `<v-app>` and its own chrome. Add a route in `src/router/index.ts`. Import components explicitly. |
 | A **reusable component** | `src/components/` | Must be imported explicitly (see above). |
-| A **chart / data viz** | `src/components/charts/` | Use a kit preset first; new presets go here on `BaseChart` + `chartTheme.ts`. See the chart mandate above. |
+| A **chart / data viz** | `src/components/charts/` | Use a kit preset first; new presets go here on `BaseChart` + `useChartTheme.ts`. Colors/type/mark geometry are never set here — they come from `src/data/chartTheme.ts`. See the chart mandate above. |
 | A **screen's dataset** | `src/data/<screen>.ts` | A typed contract + a synthetic data object. See the house rule below. |
 | **API contracts / callers** | `src/api/` | `types.ts` · `client.ts` · `<domain>.ts`. |
 | **Mock endpoints** | `src/mocks/handlers.ts` | Implement the contract; synthetic data only. |
@@ -259,14 +274,29 @@ added per project.
 
 - `src/data/brand.ts` — the brand preset (`/new-project` writes it); `brand.identity` is live.
 - `src/plugins/vuetify.ts` — the design control panel: theme colors (light/dark) + component
-  defaults. Hot-reloads.
-- `src/styles/settings.scss` — radius / spacing / sizing / type Sass vars. Restart required.
+  defaults. Hot-reloads. Covers components only — **chart series colors live in
+  `src/data/chartTheme.ts`** (below).
+- `src/styles/_tokens.scss` — the raw radius scale (`$radius-sm…2xl`). **Edit radius here**, not in
+  `settings.scss`: a Sass `with(…)` block can't reference the vars it configures, so this separate
+  module is what keeps the `$rounded` scale and `$border-radius-root` coupled. Restart required.
+- `src/styles/css-tokens.scss` — republishes that scale as `--radius-*` CSS custom properties for
+  plain CSS and `<style>` blocks. Imported by `main.ts` + `storybook.ts` before `overrides.css`.
+  **Never put a px literal in it** — it exists to remove duplicates, not add one.
+- `src/styles/settings.scss` — spacing / sizing / type Sass vars, plus the Vuetify radius wiring
+  (it references `_tokens.scss`; don't put radius numbers here). Restart required.
 - `src/styles/overrides.css` — small documented fixes for Vuetify quirks with no prop/token lever;
   imported last in `main.ts` so it wins. Also defines `.section-panel` / `--section-radius`.
 - `src/styles/sass-variables-reference.md` — the full ~764-var Sass catalog (reference only).
 - `src/screens/Storybook.vue` — the DS Storybook: a standalone app on port 3001, and **the
   reference for every component and chart here**. Its *Colors* section renders the live theme, so
   any token not filed into `colorGroups` shows up under *Uncategorised*.
+- `src/data/chartTheme.ts` — **the data-viz control panel**, what `vuetify.ts` is to components:
+  the series colors (`categorical` / `sequential` / `diverging`) plus chart type sizes and mark
+  geometry. Every chart reads it through `src/components/charts/useChartTheme.ts`, which pulls
+  ink / surface / status colors *live* from the Vuetify theme instead — so those are **not**
+  duplicated here. Hot-reloads. Its hexes **and the `categorical` order** are validated
+  colorblind-safe against both card surfaces; no validator ships in this repo, so load the
+  `dataviz` skill before retuning.
 - `src/data/chartSamples.ts` — the synthetic datasets the Storybook charts render; the shape
   reference for the chart-kit props.
 - `src/components/README.md` — what's in that folder and the explicit-import rule. Where it and
@@ -280,9 +310,6 @@ added per project.
 - **Never hardcode the product name.** Read `brand.identity` from `src/data/brand.ts` and
   interpolate it (`` `${brand.identity.shortName} Settings` ``). A find-and-replace rename must
   never be necessary.
-  <!-- TEMPLATE-ONLY:start -->
-  Outside the app — in files that can't import TS — use the `{{PROJECT_NAME}}` token instead.
-  <!-- TEMPLATE-ONLY:end -->
 - **Screens are dataset-driven.** Every screen renders from a typed dataset in `src/data/` (a
   contract + a synthetic data object) — no figures, labels, names, counts, or copy hardcoded in
   the template. Import the dataset, bind the template to it, and wrap mutable UI state in refs

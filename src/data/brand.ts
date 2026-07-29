@@ -17,33 +17,24 @@
  *     This is the dataset-driven pattern (see CLAUDE.md): a screen is a pure
  *     view over data, so a rename is one edit here, not a find-and-replace.
  *
- *   • `colors` and `radius` are a RECORD of what was chosen. The values that
- *     actually style the app live in the design control panel:
+ *   • `colors`, `radius` and `typography` are a RECORD of what was chosen. The
+ *     values that actually style the app live in the design control panel:
  *         colors  → src/plugins/vuetify.ts   (theme.themes.light/dark.colors)
- *         radius  → src/styles/settings.scss  ($rounded map + $border-radius-root)
+ *         radius  → src/styles/_tokens.scss   (the five $radius-* values; they
+ *                                              feed BOTH the $rounded scale and
+ *                                              $border-radius-root)
+ *         font    → src/styles/settings.scss  ($body-font-family) — plus the
+ *                                              @fontsource/* dependency in
+ *                                              package.json and the matching
+ *                                              entry in vite.config.mts's Fonts
+ *                                              plugin. All three must agree or
+ *                                              the app silently falls back to
+ *                                              system sans-serif.
  *     Editing them HERE does nothing on its own. To change the look, re-run
  *     `/new-project` (or ask Claude to "apply the brand preset") — the skill
  *     propagates these into the two control-panel files and keeps them in sync.
  *     They live here so the choices are inspectable and a future project can
  *     start from this preset instead of re-answering the quiz.
- *
- * TEMPLATE-ONLY:start — /new-project deletes this paragraph when it configures
- * the repo, because it describes the UNCONFIGURED state and would be misleading
- * once a real brand is in place.
- *
- *   PLACEHOLDER TOKENS — this repo ships as an unconfigured template. Every
- *   value below that is not yet a real choice is written as a `{{TOKEN}}`
- *   placeholder. Running `/new-project` replaces them (here and in the files
- *   that cannot import this module — index.html, storybook.html, package.json,
- *   README.md, CLAUDE.md). Anything still reading `{{…}}` at runtime means the
- *   project has not been configured yet; that is intentional and visible on
- *   purpose, so an unconfigured template is never mistaken for a finished brand.
- *
- *   The color and radius values below are Vuetify's own stock palette — a
- *   working default, not a brand. The app runs and looks coherent before the
- *   quiz is ever run.
- *
- * TEMPLATE-ONLY:end
  */
 
 /** A brand color choice: a human label + the hex the skill writes into the theme. */
@@ -54,7 +45,7 @@ export interface BrandColor {
   hex: string
 }
 
-/** Radius personality — maps to how round the `$rounded` scale is set in settings.scss. */
+/** Radius personality — maps to how round the `$radius-*` scale is set in _tokens.scss. */
 export type RadiusStyle = 'sharp' | 'soft' | 'round'
 
 export interface BrandConfig {
@@ -95,46 +86,75 @@ export interface BrandConfig {
     info: BrandColor
   }
 
-  /** RECORD — the radius personality the skill applies to settings.scss. */
+  /** RECORD — the radius personality the skill applies to _tokens.scss. */
   radius: {
     style: RadiusStyle
     /** Human note on what this personality means, kept for the preset's readability. */
     note: string
   }
+
+  /** RECORD — the app fonts. The body family covers everything except section
+   *  headings, and charts read the body font off the rendered page. */
+  typography: {
+    /** Display name, exactly as written in $body-font-family and vite.config.mts. */
+    family: string
+    /** Fontsource package slug — `@fontsource/<slug>`. Empty if self-hosted. */
+    fontsourceSlug: string
+    /** Weights registered with the Fonts plugin; the family must actually ship them. */
+    weights: number[]
+    /**
+     * Optional second family for section headings ($heading-font-family). Omit it
+     * and headings inherit the body font — which is the cheaper default, since
+     * every registered family is another download on first paint.
+     */
+    heading?: {
+      family: string
+      fontsourceSlug: string
+      weights: number[]
+    }
+  }
 }
 
-/**
- * The current preset.
- *
- * TEMPLATE-ONLY:start
- * `identity` is UNCONFIGURED — the `{{…}}` tokens are filled in by `/new-project`.
- * TEMPLATE-ONLY:end
- */
+/** The current preset. */
 export const brand: BrandConfig = {
   identity: {
-    name: '{{PROJECT_NAME}}',
-    shortName: '{{PROJECT_SHORT_NAME}}',
-    description: '{{PROJECT_DESCRIPTION}}',
-    tagline: '{{PROJECT_TAGLINE}}',
+    name: 'Robodog',
+    shortName: 'Robodog',
+    description:
+      'A factory operations management platform for monitoring and coordinating production in real time — autonomous vehicles, production lines, equipment and missions on a single live view of the floor.',
+    tagline: 'The whole floor, live.',
   },
 
   colors: {
-    // Sourced from vuetify.ts light theme — labels match the comments there.
-    // TEMPLATE-ONLY:start
-    // These are Vuetify's own stock palette, not a brand — a working default.
-    // TEMPLATE-ONLY:end
-    primary: { label: 'Vuetify Blue', hex: '#1867C0' },
-    secondary: { label: 'Teal', hex: '#48A9A6' },
-    onSurface: { label: 'Black', hex: '#000000' },
-    success: { label: 'Green', hex: '#4CAF50' },
-    error: { label: 'Red', hex: '#B00020' },
-    warning: { label: 'Orange', hex: '#FB8C00' },
-    info: { label: 'Blue', hex: '#2196F3' },
+    // Mirrors vuetify.ts → theme.themes.DARK.colors, which is the app's default
+    // theme and the one carrying the brand. (The `light` theme is still on
+    // placeholder values, so there is nothing truthful to record from it yet.)
+    primary: { label: 'Robodog Blue', hex: '#4C8AE8' },
+    secondary: { label: 'Signal Mint', hex: '#62EBCD' },
+    onSurface: { label: 'White', hex: '#FFFFFF' },
+    success: { label: 'Muted Green', hex: '#6EB185' },
+    error: { label: 'Muted Rose', hex: '#D87894' },
+    warning: { label: 'Amber', hex: '#DD9933' },
+    info: { label: 'Sky Blue', hex: '#68BEFF' },
   },
 
   radius: {
-    // Current scale is round: md=16, cards xl=48, buttons pill. See settings.scss $rounded.
-    style: 'round',
-    note: 'Round — soft 16px content cards, extra-round panels, pill buttons.',
+    // Current scale: sm=4 · md=8 · lg=12 · xl=16 · 2xl=24. See src/styles/_tokens.scss.
+    style: 'soft',
+    note: 'Soft — 4/8/12/16/24 scale; 8px default tier (cards, buttons, inputs, dialogs, menus), 12px select popups, 24px section panels.',
+  },
+
+  typography: {
+    // Mirrors $body-font-family in src/styles/settings.scss and the matching
+    // entry in vite.config.mts. Changing it here does nothing on its own.
+    family: 'Inter',
+    fontsourceSlug: 'inter',
+    weights: [400, 500, 600, 700],
+    // Section headings run in Archivo per the Figma type ramp ($heading-font-family).
+    heading: {
+      family: 'Archivo',
+      fontsourceSlug: 'archivo',
+      weights: [400, 500, 600, 700],
+    },
   },
 }

@@ -6,43 +6,31 @@
  */
 
 /*
- * Outlined + rounded field: clean symmetric corners, no label override.
+ * ⚠️ IF YOU EVER SET A `rounded` DEFAULT ON FIELDS OR BUTTONS, READ THIS.
  *
- * Vuetify renders the floating label as a flex child INSIDE the border outline,
- * right after the left corner cap:
- *   .v-field__outline -> [ __start (cap) · __notch (label + gap) · __end (cap) ]
- * When a `rounded-*` class is present it widens BOTH caps to
- * `calc(control-height / 2 + 2px)` so each corner draws its full curve. We rely
- * on that stock behavior: at the DS input radius (`lg` = 24px) both corners
- * render an identical, symmetric curve — which is the look we keep.
+ * Two workarounds used to live here. Both were deleted when `vuetify.ts` stopped
+ * setting `rounded` on VBtn and on the seven input components — they were only
+ * ever needed BECAUSE of those defaults. Re-adding either default reintroduces
+ * the bug, so the diagnosis is kept:
  *
- * The cost is that the floating label sits ~14px right of the typed text (it
- * lives after the widened cap). We do NOT try to pull it back: any override that
- * shifts the notch/label to the text inset at a 24px radius collides with the
- * corner geometry and breaks the top border at the corner. Label alignment and a
- * full 24px corner are mutually exclusive in Vuetify's outlined field — aligning
- * the label requires a radius that fits the text inset (<= 16px). We chose to
- * keep the 24px corner, so the native label indent stays.
+ * 1. FIELD LABEL INDENT — `rounded` on a field emits a `rounded-*` class, and
+ *    Vuetify then widens both outline caps to `calc(control-height / 2 + 2px)`
+ *    (30px at the 56px default) so a pill corner can draw its full curve. The
+ *    width comes from the control HEIGHT, not the radius, so ANY rounded class
+ *    pushes the floating label ~18px right of the typed text. The fix was to pin
+ *    the cap to `padding-start - 4px` (the label carries `margin: 0 4px` inside
+ *    the notch), which requires `padding-start >= radius + 4px` or the left
+ *    corners get scaled down to the cap width while the right keep the full
+ *    radius — visibly lopsided.
+ *
+ * 2. NUMBER-INPUT +/- BUTTONS — a global `VBtn: { rounded: 'pill' }` stamps
+ *    `.rounded-pill` (9999px !important) onto the increment/decrement buttons
+ *    VNumberInput builds internally. Vuetify styles those square on purpose:
+ *    their wrappers carry `overflow: hidden` + the field's corner, so a square
+ *    button's state layer fills the whole segment and rounds at the field's
+ *    outer corner. The pill collapses it into a floating blob. The fix was
+ *    `border-radius: 0 !important` on `.v-number-input__control .v-btn`.
  */
-
-/*
- * VNumberInput +/- buttons: undo the global pill radius.
- *
- * The DS sets a global `VBtn: { rounded: 'pill' }` default, which stamps the
- * `.rounded-pill` utility (border-radius: 9999px !important) onto EVERY VBtn —
- * including the increment/decrement buttons VNumberInput builds internally.
- * Vuetify styles those buttons square (border-radius: 0) on purpose: their
- * prepend/append wrappers carry `overflow: hidden` + the field's inherited
- * corner radius, so a square button's hover/active state fills the whole segment
- * and rounds cleanly at the field's outer corner. The pill utility's !important
- * overrides that 0, collapsing the state layer into a floating rounded blob that
- * ignores the field corner. Force the buttons back to square (needs !important
- * to beat the utility) so the wrapper clipping shapes the state as intended.
- */
-.v-number-input__control .v-btn.rounded-pill,
-.v-number-input__control .v-btn {
-  border-radius: 0 !important;
-}
 
 /*
  * Dropdown menu items: icon→label gap, set once.
@@ -107,14 +95,30 @@
 /*
  * Section-panel radius — the OUTER tier of the dashboard: the tinted
  * `bg-background-50` containers that WRAP content cards. Content cards inherit the
- * VCard `md` (16px) default; these sit one tier out and take a larger radius so the
+ * VCard `md` (8px) default; these sit one tier out and take a larger radius so the
  * nesting stays concentric. A VCard can carry only ONE default `rounded`, so this
- * second tier needs its own knob — change `--section-radius` to retune every section
- * panel at once (parallels the single VCard default in vuetify.ts). The
- * `.v-card.section-panel` selector (+ !important) beats the inherited `rounded-md`
- * utility regardless of cascade order, so no reliance on import order.
+ * second tier needs its own knob — repoint `--section-radius` at a different step to
+ * retune every section panel at once (parallels the single VCard default in
+ * vuetify.ts). The `.v-card.section-panel` selector (+ !important) beats the
+ * inherited `rounded-md` utility regardless of cascade order, so no reliance on
+ * cascade order.
+ *
+ * Bound to `--radius-2xl` (published by css-tokens.scss, imported just before this
+ * file) rather than a literal, so retuning the scale in _tokens.scss carries here.
  */
-:root { --section-radius: 24px; }   /* the `lg` step (24px); the outer panel tier */
+/* ── Figma `Neutral/*` translucent greys ────────────────────────────────────
+   The design layers a grey at three alphas over the base background for panel
+   fills, borders and inset rings. Vuetify theme tokens are SOLID colours, so
+   these can't live in vuetify.ts — they live here and are referenced by name,
+   never written inline in a component. Source: Figma variables
+   Neutral/background (#7f86921f), -hover (#7f869229), -active (#7f869233). */
+:root {
+  --neutral-bg: rgba(127, 134, 146, 0.12);
+  --neutral-bg-hover: rgba(127, 134, 146, 0.16);
+  --neutral-bg-active: rgba(127, 134, 146, 0.2);
+}
+
+:root { --section-radius: var(--radius-2xl); }   /* the `2xl` step; the outer panel tier */
 .v-card.section-panel,
 .v-sheet.section-panel { border-radius: var(--section-radius) !important; }
 
