@@ -44,7 +44,7 @@
     NodeKind,
     ShellVertex,
   } from '@/data/floorOps'
-  import { ROBOT_STATE_LABEL, taskPriorities } from '@/stores/fleet'
+  import { ROBOT_STATE_LABEL, UNIT_LIVERY, taskPriorities, unitName } from '@/stores/fleet'
   import type {
     EmergencyMark,
     FleetCrane,
@@ -337,7 +337,28 @@
   }
 
   /** The reference an operator calls the unit by: AMR-07 → "07". */
-  const shortTag = (v: FleetRobot) => v.code.split('-')[1] ?? v.code
+  /**
+   * The reference an operator calls the unit by.
+   *
+   * ⚠️ THE CALL-SIGN, NOT THE NUMBER, AND THAT IS A CORRECTNESS FIX. This used to
+   * render `AMR-01` as "01" — which is also what `FLT-01` rendered as. Two
+   * machines on one floor plan carrying the same label is a dispatch surface
+   * inviting an operator to act on the wrong robot. With five units there is room
+   * for a real name, and `UNIT_LIVERY` gives each one. Falls back to the full
+   * code — never to the ambiguous fragment.
+   */
+  const shortTag = (v: FleetRobot) => unitName(v.id) ?? v.code
+
+  /**
+   * This unit's own accent, for the heading arrow.
+   *
+   * The per-type CSS classes below still supply a fallback, so a unit with no
+   * livery keeps its chassis colour rather than losing its arrow entirely.
+   */
+  const accentOf = (v: FleetRobot) => {
+    const accent = UNIT_LIVERY[v.id]?.accent
+    return accent ? `rgb(var(--v-theme-${accent}))` : undefined
+  }
 
   /** Everything the marker shows visually, said in words for assistive tech. */
   function vehicleLabel (v: FleetRobot) {
@@ -634,7 +655,14 @@
             :cx="v.x" :cy="v.y" r="24"
           />
           <!-- Direction first, so the tile paints over its base. -->
-          <polygon class="vehicle__heading" :points="headingPoints(v)" />
+          <!-- The arrow carries the unit's OWN accent, not its chassis's. The
+               per-type rules in the stylesheet remain as the fallback for a unit
+               with no livery, so nothing loses its arrow. -->
+          <polygon
+            class="vehicle__heading"
+            :points="headingPoints(v)"
+            :style="accentOf(v) ? { fill: accentOf(v) } : undefined"
+          />
           <rect class="vehicle__ring" :x="v.x - 18" :y="v.y - 18" width="36" height="36" rx="11" />
           <rect class="vehicle__tile" :x="v.x - 14" :y="v.y - 14" width="28" height="28" rx="8" />
           <foreignObject :x="v.x - 8.5" :y="v.y - 8.5" width="17" height="17">

@@ -31,7 +31,7 @@
   import { TrafficLayer } from './trafficLayer'
   import type { TrafficTelemetry } from '@/sim/trafficControl'
   import type { Livery } from './robotLivery'
-  import { ROBOT_MODELS, ROBOT_STATE_TONE } from '@/stores/fleet'
+  import { ROBOT_MODELS, ROBOT_STATE_TONE, UNIT_LIVERY } from '@/stores/fleet'
   import type {
     EmergencyMark,
     FleetCharger,
@@ -288,14 +288,24 @@
    * carries the cranes' `ASRS` accent alongside the three chassis, and the
    * fixture type table it used to borrow that key from no longer exists.
    */
-  function liveryFor (typeId: RobotTypeId | string): Livery {
+  function liveryFor (typeId: RobotTypeId | string, robotId?: string): Livery {
+    // A unit's own accent wins over its chassis's. On a five-robot floor the
+    // chassis accent is a fallback, not the identity — see `UNIT_LIVERY`.
+    const own = robotId ? UNIT_LIVERY[robotId]?.accent : undefined
     return {
       body: token(robotLivery.body),
       trim: token(robotLivery.trim),
-      accent: token(robotLivery.accent[typeId] ?? 'primary-bright'),
+      accent: token(own ?? robotLivery.accent[typeId] ?? 'primary-bright'),
       roughness: robotLivery.roughness,
       metalness: robotLivery.metalness,
     }
+  }
+
+  /** This unit's badge parts, or undefined for a unit with no posting paint. */
+  function identityFor (robotId: string) {
+    const livery = UNIT_LIVERY[robotId]
+    if (!livery) return undefined
+    return { accent: token(livery.accent), markings: livery.markings }
   }
 
   /**
@@ -338,7 +348,9 @@
         layer.spawnMarker({
           id: robot.id,
           sizeM: model?.sizeM ?? FALLBACK_SIZE_M,
-          color: token(TYPE_TOKEN[robot.typeId]),
+          // The unit's own colour even on a schematic marker: a placeholder that
+          // cannot be told from its neighbour is a worse placeholder.
+          color: token(UNIT_LIVERY[robot.id]?.accent ?? TYPE_TOKEN[robot.typeId]),
           pose,
         })
         continue
@@ -350,7 +362,8 @@
           modelUrl: model.url,
           sizeM: model.sizeM,
           yawOffset: model.yawOffset,
-          livery: liveryFor(robot.typeId),
+          livery: liveryFor(robot.typeId, robot.id),
+          identity: identityFor(robot.id),
           pose,
         })
       } catch (error) {
@@ -361,7 +374,7 @@
         layer.spawnMarker({
           id: robot.id,
           sizeM: model.sizeM,
-          color: token(TYPE_TOKEN[robot.typeId]),
+          color: token(UNIT_LIVERY[robot.id]?.accent ?? TYPE_TOKEN[robot.typeId]),
           pose,
         })
       }

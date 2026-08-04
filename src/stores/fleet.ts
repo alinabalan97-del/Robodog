@@ -54,10 +54,11 @@ import type {
   TaskKind,
   TaskPriority,
   TaskTelemetry,
+  UnitLivery,
 } from '@/data/fleet'
 
 /** Re-exported so renderers can type against the fleet without reaching past the store. */
-export type { RobotState, RobotTelemetry, RobotTypeId, TaskPriority, FleetEvent, FleetMetrics }
+export type { RobotState, RobotTelemetry, RobotTypeId, TaskPriority, FleetEvent, FleetMetrics, UnitLivery }
 
 /** One job as a renderer sees it — the simulation's own shape, unmodified. */
 export type FleetTask = TaskTelemetry
@@ -195,6 +196,30 @@ export const ROBOT_MODELS: Record<RobotTypeId, RobotModel> = Object.fromEntries(
     { url: type.modelUrl, sizeM: type.sizeM, yawOffset: type.yawOffset },
   ]),
 ) as Record<RobotTypeId, RobotModel>
+
+/**
+ * ── PER-UNIT IDENTITY, BY ROBOT ID ──────────────────────────────────────────
+ *
+ * Built from the roster rather than declared beside it, so a unit cannot end up
+ * with paint no robot wears or a robot end up with no entry — the two lists
+ * keyed by the same ids are the thing that drifts.
+ *
+ * ⚠️ PER-UNIT, NOT PER-CHASSIS, AND THAT IS THE POINT ON A FIVE-ROBOT FLOOR.
+ * `robotLivery.accent` still carries a fallback per chassis, which was enough
+ * when three colours told an operator what KIND of machine they were looking at
+ * and the code told them which one. With two forklifts on the floor, identical
+ * paint means reading a label to tell them apart — and the label is the first
+ * thing to go at wall-display distance. Colour, hull marking and call-sign are
+ * three redundant channels on purpose: colour alone fails a colourblind operator
+ * and fails in bad light.
+ */
+export const UNIT_LIVERY: Record<string, UnitLivery> = Object.fromEntries(
+  fleetRobots.filter(def => def.livery).map(def => [def.id, def.livery!]),
+)
+
+/** The call-sign a floor team says out loud, or null for a unit without one. */
+export const unitName = (robotId: string): string | null =>
+  UNIT_LIVERY[robotId]?.name ?? null
 
 /** Every state gets a word — no surface in this app conveys status by colour alone. */
 export const ROBOT_STATE_LABEL: Record<RobotState, string> = {

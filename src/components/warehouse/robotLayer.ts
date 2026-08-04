@@ -31,10 +31,12 @@ import {
   BoxGeometry,
   Color,
   ConeGeometry,
+  CylinderGeometry,
   Group,
   Mesh,
   MeshStandardMaterial,
   Object3D,
+  SphereGeometry,
   Vector3,
 } from 'three'
 import type { AnimationClip } from 'three'
@@ -44,6 +46,7 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { disposeObject } from './warehouseScene'
 import { applyLivery } from './robotLivery'
 import type { Livery } from './robotLivery'
+import type { RobotSize } from '@/data/fleet'
 import type { FloorProjection } from './floorProjection'
 
 /**
@@ -132,6 +135,23 @@ export interface RobotSpawnSpec {
    * each other. Omit to keep the model's own materials.
    */
   livery?: Livery
+  /**
+   * This unit's OWN identity — accent colour, hull marking and call-sign.
+   *
+   * ⚠️ PER UNIT, NOT PER CHASSIS, and it is what makes a five-robot floor
+   * readable. Two forklifts share one GLB and one house livery; without this
+   * they are the same machine twice and an operator has to read a label to tell
+   * them apart. Omit it and the unit simply wears its chassis paint.
+   */
+  identity?: UnitIdentity
+}
+
+/** The three redundant channels one unit is recognised by. See `UnitLivery`. */
+export interface UnitIdentity {
+  /** Resolved CSS colour — the viewer converts the theme token before calling. */
+  accent: string
+  /** Hull marking. A shape, so identity survives greyscale and bad light. */
+  markings: 'stripe' | 'chevron' | 'dot' | 'band' | 'cross'
 }
 
 interface RobotEntry {
@@ -225,6 +245,9 @@ export class RobotLayer {
     // Repaint into the house livery BEFORE the instance is registered, so it is
     // never visible in the model's own colours for a frame.
     const materials = spec.livery ? applyLivery(root, spec.livery) : []
+    // After the livery, so the badge keeps its own accent instead of being
+    // repainted into the shared hull colour along with the rest of the mesh.
+    if (spec.identity && spec.sizeM) this.addIdentity(root, spec.sizeM, spec.identity)
 
     const clips = gltf.animations ?? []
     this.robots.set(spec.id, {
@@ -363,6 +386,94 @@ export class RobotLayer {
 
   get selectedId (): string | null {
     return this.highlighted
+  }
+
+  /**
+   * ── ONE UNIT'S OWN IDENTITY, BOLTED ONTO WHATEVER CHASSIS IT IS ────────────
+   *
+   * Two forklifts share one GLB. Repainting the whole hull per unit would fight
+   * the house livery — the fleet is meant to read as one manufacturer's product
+   * line — so identity is ADDED as parts rather than swapped into the body:
+   *
+   *   BEACON    an emissive dome on the roof, this unit's accent. The one part
+   *             visible from across the hall and from directly above, which is
+   *             the angle the 3D view is actually watched from.
+   *   MARKING   a flat decal on the deck whose SHAPE differs per unit. Colour
+   *             alone fails a colourblind operator and fails in bad light, and
+   *             both of those are binding domain rules — so the shape is the
+   *             channel that survives when the colour does not.
+   *   MAST BAND a ring at hull height, so the unit is identifiable in profile
+   *             when the roof is hidden by racking.
+   *
+   * ⚠️ SIZED IN METRES THROUGH `worldPerMetre`, never through `unitScale`. Plan
+   * units and metres are two different scales here and crossing them is how the
+   * fleet once rendered at a third of its proper size (`floorProjection.ts`).
+   *
+   * ⚠️ ADDED TO THE INSTANCE ROOT, NOT TO THE CACHED SOURCE. The source is shared
+   * by every unit of that chassis; decorating it would give all of them the same
+   * badge. `spawn()` clones first, so `root` here is always per-instance.
+   */
+  private addIdentity (root: Object3D, sizeM: RobotSize, identity: UnitIdentity): void {
+    const metre = this.projection.worldPerMetre
+    const tint = new Color(identity.accent)
+    const badge = new MeshStandardMaterial({
+      color: tint,
+      roughness: 0.4,
+      metalness: 0.1,
+      // Self-lit so it stays readable inside a dim hall without the lighting rig
+      // being tuned around it — the same reasoning the schematic marker uses.
+      emissive: tint.clone().multiplyScalar(0.55),
+    })
+
+    const group = new Group()
+    group.name = 'identity'
+
+    // ── Roof beacon ──────────────────────────────────────────────────────────
+    const beaconR = Math.max(0.045, sizeM.widthM * 0.11) * metre
+    const beacon = new Mesh(new SphereGeometry(beaconR, 12, 8), badge)
+    beacon.position.y = sizeM.heightM * metre + beaconR * 0.35
+    group.add(beacon)
+
+    // ── Profile band ─────────────────────────────────────────────────────────
+    const bandR = Math.max(sizeM.widthM, sizeM.lengthM) * 0.5 * metre * 0.62
+    const band = new Mesh(new CylinderGeometry(bandR, bandR, 0.035 * metre, 16, 1, true), badge)
+    band.position.y = sizeM.heightM * metre * 0.72
+    group.add(band)
+
+    // ── Deck marking. The shape is the identity; the colour reinforces it. ───
+    const deckY = sizeM.heightM * metre * 0.02 + 0.006 * metre
+    const L = sizeM.lengthM * metre
+    const W = sizeM.widthM * metre
+    const plate = (w: number, d: number, x = 0, z = 0, rotY = 0) => {
+      const m = new Mesh(new BoxGeometry(w, 0.012 * metre, d), badge)
+      m.position.set(x, deckY, z)
+      m.rotation.y = rotY
+      group.add(m)
+    }
+    switch (identity.markings) {
+      case 'stripe':
+        plate(W * 0.16, L * 0.78)
+        break
+      case 'chevron':
+        plate(W * 0.15, L * 0.34, -W * 0.16, -L * 0.14, Math.PI / 5)
+        plate(W * 0.15, L * 0.34, W * 0.16, -L * 0.14, -Math.PI / 5)
+        break
+      case 'dot': {
+        const dot = new Mesh(new CylinderGeometry(W * 0.2, W * 0.2, 0.012 * metre, 14), badge)
+        dot.position.y = deckY
+        group.add(dot)
+        break
+      }
+      case 'band':
+        plate(W * 0.92, L * 0.17)
+        break
+      case 'cross':
+        plate(W * 0.14, L * 0.62, 0, 0, Math.PI / 4)
+        plate(W * 0.14, L * 0.62, 0, 0, -Math.PI / 4)
+        break
+    }
+
+    root.add(group)
   }
 
   /** Advance animation mixers. Call from the render loop with a delta in seconds. */
