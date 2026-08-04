@@ -101,6 +101,7 @@ export default createVuetify({
           'primary-bright': '#47B0FF', // the CTA blue used by the Figma header button — see note in FloorOps.vue
           'primary-medium': '#457ED3', // Figma `foundation/blue/blue-600` — checked/assigned control fills
           'tertiary-bright': '#9ECBAD', // Figma `foundation/green/green-300` — the ring around the you-are-here pip
+          'primary-violet': '#9579FE', // END of the brand gradient that starts at `primary` — see the note on it above
           'primary-accent': '#9D6EFF', // assistant gradient START (Figma: rgb(157,110,255))
           'primary-deep': '#6674D9', // 2D/3D active-segment gradient END (Figma: rgb(102,116,217))
           secondary: '#62EBCD', // supporting accent
@@ -152,6 +153,7 @@ export default createVuetify({
           'primary-bright': '#47B0FF', // the CTA blue used by the Figma header button
           'primary-medium': '#457ED3', // Figma `foundation/blue/blue-600` — checked/assigned control fills
           'tertiary-bright': '#9ECBAD', // Figma `foundation/green/green-300` — the ring around the you-are-here pip
+          'primary-violet': '#9579FE', // END of the brand gradient that starts at `primary` — see the note on it above
           'primary-accent': '#9D6EFF', // assistant gradient START
           'primary-deep': '#6674D9', // 2D/3D active-segment gradient END
           'secondary-accent': '#4DFDE0', // assistant gradient END

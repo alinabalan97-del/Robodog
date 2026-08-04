@@ -15,13 +15,19 @@
    * Per CLAUDE.md there is no shared shell: this screen declares its own <v-app>,
    * its own chrome and its own snackbar.
    */
-  import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
+  import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
   import { useTheme } from 'vuetify'
   import AppIcon from '@/components/AppIcon.vue'
   import FloorMap from '@/components/FloorMap.vue'
+  import FleetPanel from '@/components/FleetPanel.vue'
   import MissionPanel from '@/components/MissionPanel.vue'
+  import TaskPanel from '@/components/TaskPanel.vue'
   import { brand } from '@/data/brand'
   import { floorOps, type FeedStatus, type SiteFloor } from '@/data/floorOps'
+  import { useFleetStore } from '@/stores/fleet'
+  import type { EmergencyMark } from '@/stores/fleet'
+  import { fleetRobots, stations } from '@/data/fleet'
+  import type { TaskKind } from '@/data/fleet'
   import logoUrl from '@/assets/Logo.png'
   // Exported from the Figma navigation node — Carbon ships no matching sparkle glyph,
   // so this is the design's own asset rather than a near-miss substitute.
@@ -39,27 +45,147 @@
   const mission = ref(floorOps.mission)
   const panelOpen = ref(true)
   const editMode = ref(false)
+  /**
+   * Async so Three.js is a separate chunk. This screen is EAGERLY routed (it is
+   * the landing route), and a static import would put the whole 3D stack in the
+   * first payload for every operator, including the ones who never leave 2D.
+   * Switching views is still seamless — the parent's state is untouched by the
+   * chunk fetch, and the viewer shows its own loading surface meanwhile.
+   */
+  const WarehouseViewer = defineAsyncComponent(
+    () => import('@/components/warehouse/WarehouseViewer.vue'),
+  )
+
+  /**
+   * The fleet lives in a store, not in this component, and BOTH views render it.
+   * That is the whole synchronisation story: 2D and 3D are two renderers over one
+   * reactive array, so a view switch cannot move a robot, drop a route or reset a
+   * status — there is nothing per-view to reset.
+   */
+  const fleet = useFleetStore()
+  fleet.seed(fleetRobots.length)
+
+  let fleetFrame = 0
+  let lastFrameMs = 0
+
+  /**
+   * One rAF loop for the whole screen, owned here rather than by either view —
+   * so the fleet keeps advancing across a 2D↔3D switch instead of restarting
+   * with the renderer. Paused when the tab is hidden: rAF already throttles, but
+   * this also stops a backgrounded wall display burning battery on a sim nobody
+   * is watching.
+   */
+  function stepFleet (nowMs: number) {
+    fleetFrame = requestAnimationFrame(stepFleet)
+    if (document.hidden) { lastFrameMs = nowMs; return }
+    if (lastFrameMs) fleet.tick((nowMs - lastFrameMs) / 1000)
+    lastFrameMs = nowMs
+  }
+
   const zoom = ref(1)
   const mapView = ref<'2d' | '3d'>('2d')
-  const selectedVehicleId = ref<string | null>(floorOps.mission.vehicles[0]?.id ?? null)
+  /**
+   * The 3D traffic overlay — reservations, junction pressure and safety rings.
+   *
+   * Off by default and deliberately not persisted: it answers "why is that robot
+   * stopped", which is a question an operator asks occasionally, and leaving it
+   * on buries the floor it explains under its own markup.
+   */
+  const showTraffic = ref(false)
+  /**
+   * The focused unit. Seeded from the fleet itself, not from the mission
+   * dataset — the fleet IS the live vehicle layer now, and pointing this at a
+   * code that is not on the floor would leave the plan with nothing highlighted.
+   */
+  const selectedVehicleId = ref<string | null>(fleet.robots[0]?.id ?? null)
   const activeNavId = ref('missions')
+
+  /**
+   * Which detail view the left rail is showing.
+   *
+   * Three views over ONE selection, not three panels: the roster answers "what
+   * is this robot doing", the task board answers "what is the floor doing and in
+   * what order", and the mission card answers "what am I responsible for". The
+   * rail is 350px, so they take turns rather than stacking.
+   */
+  const railTab = ref<'fleet' | 'tasks' | 'mission'>('fleet')
+
+  const selectedRobot = computed(() => fleet.byId(selectedVehicleId.value ?? ''))
+
+  /**
+   * The urgency of the selected unit's job — what colours its route in BOTH
+   * views. Read from the robot rather than looked up in the task list, because
+   * the robot's own frame is the thing the maps are already drawing.
+   */
+  const routePriority = computed(() => selectedRobot.value?.taskPriority ?? null)
+
+  /**
+   * ── WHERE THE LIVE EMERGENCIES ARE ─────────────────────────────────────────
+   *
+   * Derived HERE, once, and handed to whichever renderer is mounted — the same
+   * arrangement `robotRoute` uses and for the same reason: resolving a station
+   * id to a floor position is a lookup, and a lookup that lived in a `.vue` file
+   * would exist twice and could disagree between 2D and 3D about where an
+   * emergency is.
+   *
+   * Only jobs that are still live appear: the simulation drops a task from
+   * `tasks` the moment it is delivered, so a beacon can never outlive its work.
+   * A queued emergency contributes NO marks — the scheduler has not chosen its
+   * bays yet, and flashing a guess would be inventing a position.
+   */
+  const stationById = new Map(stations.map(station => [station.id, station]))
+
+  const emergencyMarks = computed<EmergencyMark[]>(() => {
+    const marks: EmergencyMark[] = []
+    for (const task of fleet.emergencyTasks) {
+      const ends = [
+        { role: 'pickup' as const, id: task.pickupStationId },
+        { role: 'delivery' as const, id: task.deliveryStationId },
+      ]
+      for (const end of ends) {
+        const station = end.id ? stationById.get(end.id) : undefined
+        if (!station) continue
+        marks.push({
+          id: `${task.id}:${end.role}`,
+          x: station.x,
+          y: station.y,
+          role: end.role,
+          label: station.label,
+          taskLabel: task.label,
+        })
+      }
+    }
+    return marks
+  })
+
+  /**
+   * The focused unit's assignment, driven and remaining — handed to whichever
+   * renderer is mounted so both draw the same route.
+   *
+   * Reading the unit's position is what makes this re-derive as it advances: the
+   * route itself lives in the engine (publishing sixteen full paths every frame
+   * would be waste), so the dependency has to be something that does tick.
+   */
+  const robotRoute = computed(() => {
+    const robot = selectedRobot.value
+    if (!robot) return null
+    void robot.x
+    void robot.y
+    return fleet.routeFor(robot.id)
+  })
 
   // ── Feed freshness ─────────────────────────────────────────────────────────
   // Binding domain rule: never present stale telemetry as live. The age below is
   // the single source for that, and it really does climb — the header degrades on
   // its own if frames stop arriving.
   //
-  // ⚠️ There is no telemetry socket yet. `receiveFrame()` stands in for one on a
-  // timer so the mechanism is exercised end-to-end; wiring src/api/ replaces the
-  // interval with real frames and nothing else here changes.
-  const feedAge = ref(floorOps.feed.ageSeconds)
+  // ⚠️ There is no telemetry socket yet, so the age is the SIMULATION's own frame
+  // age. That makes the chip honest rather than decorative: pause the simulation
+  // and the header really does go stale and then disconnected, because the
+  // positions on screen really have stopped being current. Wiring src/api/
+  // replaces the source of this number and nothing else here changes.
   const staleAfter = floorOps.feed.staleAfterSeconds
-  let ageTimer: number | undefined
-  let frameTimer: number | undefined
-
-  function receiveFrame () {
-    feedAge.value = 0
-  }
+  const feedAge = computed(() => Math.floor(fleet.frameAgeSeconds))
 
   const feedStatus = computed<FeedStatus>(() => {
     if (feedAge.value > staleAfter * 4) return 'disconnected'
@@ -82,19 +208,33 @@
   })
 
   onMounted(() => {
-    ageTimer = window.setInterval(() => { feedAge.value += 1 }, 1000)
-    frameTimer = window.setInterval(receiveFrame, 4000)
+    fleet.start()
+    fleetFrame = requestAnimationFrame(stepFleet)
   })
   onBeforeUnmount(() => {
-    window.clearInterval(ageTimer)
-    window.clearInterval(frameTimer)
+    cancelAnimationFrame(fleetFrame)
+    fleet.stop()
   })
 
   // ── Hall counters. Each carries a word, not just an icon and a number. ──────
+  // The vehicle and alert counts are the LIVE fleet's, not the dataset's — a
+  // header that disagreed with the plan under it would be worse than no header.
+  // People on floor stays synthetic; nothing in this build models them.
   const counters = computed(() => [
     { id: 'people', icon: 'userMultiple', value: hall.value.peopleOnFloor, label: 'people on floor' },
-    { id: 'vehicles', icon: 'vehicle', value: hall.value.vehiclesActive, label: 'vehicles active' },
-    { id: 'alerts', icon: 'alert', value: hall.value.openAlerts, label: 'open alerts', tone: 'error' },
+    { id: 'vehicles', icon: 'vehicle', value: fleet.working, label: 'robots working' },
+    // Live emergencies get a counter of their own beside the alert count, and
+    // they are not the same thing: an alert is a robot that needs attention, an
+    // emergency is WORK that does. Folding them together would let a busy floor
+    // hide an urgent delivery behind three flat batteries.
+    {
+      id: 'emergency',
+      icon: 'alertFilled',
+      value: fleet.queuedByPriority.emergency,
+      label: 'emergency tasks live',
+      tone: 'error',
+    },
+    { id: 'alerts', icon: 'alert', value: fleet.alerting, label: 'open alerts', tone: 'error' },
   ])
 
   // ── Map controls ───────────────────────────────────────────────────────────
@@ -117,8 +257,9 @@
   // ── Selection ──────────────────────────────────────────────────────────────
   function selectVehicle (id: string) {
     selectedVehicleId.value = id
-    const onMap = floorOps.map.vehicles.find(v => v.id === id)
-    if (onMap?.alert) notify(`${onMap.code}: ${onMap.alert}`, 'warning')
+    railTab.value = 'fleet'
+    const robot = fleet.byId(id)
+    if (robot?.alert) notify(`${robot.code}: ${robot.alert}`, 'warning')
   }
 
   function toggleVehicle (id: string) {
@@ -138,6 +279,67 @@
   const snack = ref({ show: false, text: '', color: 'surface-bright' })
   function notify (text: string, color = 'surface-bright') {
     snack.value = { show: true, text, color }
+  }
+
+  // ── Real-time notifications ────────────────────────────────────────────────
+  //
+  // ⚠️ DRIVEN BY EVENT ID, NOT BY ARRAY LENGTH. The feed is a capped ring, so it
+  // stops growing once it is full and a length watcher would go silent exactly
+  // when the floor got busiest. Ids are monotonic, so "everything above the
+  // highest id I have shown" is the only correct definition of new.
+  //
+  // The panel keeps the whole feed; this only raises the ones an operator should
+  // not have to be looking at the rail to see.
+  let lastEventId = 0
+
+  /** Which events interrupt. The rest are in the feed and that is enough. */
+  const TOASTED: ReadonlyArray<string> = [
+    'emergency-created',
+    'robot-reassigned',
+    'task-interrupted',
+    'task-resumed',
+    'emergency-completed',
+    'emergency-unassignable',
+  ]
+
+  const EVENT_COLOR: Record<string, string> = {
+    critical: 'error',
+    warning: 'warning',
+    info: 'surface-bright',
+  }
+
+  watch(() => fleet.events, events => {
+    // Only the newest qualifying event is raised. A burst — an emergency created,
+    // a robot reassigned and a task interrupted all inside one tick — is one
+    // situation, and three stacked toasts would bury the map they are about.
+    let newest: (typeof events)[number] | null = null
+    for (const event of events) {
+      if (event.id <= lastEventId) continue
+      if (TOASTED.includes(event.kind)) newest = event
+    }
+    if (events.length) lastEventId = Math.max(lastEventId, events[events.length - 1]!.id)
+    if (newest) notify(newest.message, EVENT_COLOR[newest.severity] ?? 'surface-bright')
+  }, { deep: true })
+
+  /**
+   * Raise an urgent delivery.
+   *
+   * ⚠️ THE CONFIRMATION HAS ALREADY HAPPENED. `TaskPanel` will not emit this
+   * without a dialog naming what it creates and what it may interrupt — a
+   * physical-world command, per CLAUDE.md. This handler only carries it into the
+   * simulation and reports the outcome, including the honest failure case where
+   * the backlog could not take it.
+   */
+  function raiseEmergency (kind: TaskKind) {
+    const id = fleet.raiseEmergency(kind)
+    if (!id) {
+      notify('That stage takes no mobile unit — no emergency was raised.', 'warning')
+      return
+    }
+    // The feed's own `emergency-created` event carries the detail; this only
+    // confirms the button did something, which a queue of fourteen jobs might
+    // otherwise hide.
+    railTab.value = 'tasks'
   }
 </script>
 
@@ -179,9 +381,12 @@
           <img :src="logoUrl" :alt="`${brand.identity.name} home`" width="368" height="35">
         </router-link>
 
-        <div class="d-flex align-center flex-shrink-0">
-          <div class="d-flex align-center ga-3 px-6">
-            <div class="d-flex align-center ga-3">
+        <!-- Allowed to shrink, so the search field absorbs a narrow viewport
+             instead of the account block falling off the end. `min-width: 0` is
+             what lets a flex child shrink below its content at all. -->
+        <div class="d-flex align-center topbar__group">
+          <div class="d-flex align-center ga-3 px-6 topbar__controls">
+            <div class="d-flex align-center ga-3 topbar__controls">
               <v-text-field
                 class="topbar__search"
                 name="floor-search"
@@ -289,19 +494,95 @@
       <h1 class="visually-hidden">{{ hall.name }} — live floor operations</h1>
 
       <div class="ops-layout">
-        <!-- ── Mission detail rail ── -->
-        <MissionPanel
-          v-if="panelOpen"
-          v-model:edit-mode="editMode"
-          v-model:location="location"
-          class="ops-layout__rail"
-          :mission="mission"
-          :location-options="floorOps.locationOptions"
-          :stale="!feedIsLive"
-          @close="panelOpen = false"
-          @toggle-vehicle="toggleVehicle"
-          @select-stop="selectStop"
-        />
+        <!-- ── Detail rail ──────────────────────────────────────────────────
+             Two detail views over one selection, not two panels: the fleet
+             roster and the mission it belongs to answer different questions
+             about the same floor, and the rail is only 350 wide. Switching is a
+             segmented control rather than a second column so the plan keeps the
+             space it needs to stay the anchor of the screen. -->
+        <div v-if="panelOpen" class="ops-layout__rail d-flex flex-column ga-3">
+          <div class="rail-toggle" role="group" aria-label="Detail view">
+            <button
+              class="rail-toggle__seg"
+              :class="{ 'rail-toggle__seg--on': railTab === 'fleet' }"
+              type="button"
+              :aria-pressed="railTab === 'fleet'"
+              @click="railTab = 'fleet'"
+            >
+              <v-icon icon="vehicle" size="16" />Fleet
+            </button>
+            <button
+              class="rail-toggle__seg"
+              :class="{ 'rail-toggle__seg--on': railTab === 'tasks' }"
+              type="button"
+              :aria-pressed="railTab === 'tasks'"
+              @click="railTab = 'tasks'"
+            >
+              <v-icon icon="workOrder" size="16" />Tasks
+              <!-- The live emergency count rides the tab itself: an urgent job
+                   raised while the operator is on another view has to be
+                   visible without switching to find it. Icon + number, and the
+                   word is on the chip's accessible name. -->
+              <span
+                v-if="fleet.queuedByPriority.emergency > 0"
+                class="rail-toggle__badge tabular"
+                :aria-label="`${fleet.queuedByPriority.emergency} emergency tasks live`"
+              >{{ fleet.queuedByPriority.emergency }}</span>
+            </button>
+            <button
+              class="rail-toggle__seg"
+              :class="{ 'rail-toggle__seg--on': railTab === 'mission' }"
+              type="button"
+              :aria-pressed="railTab === 'mission'"
+              @click="railTab = 'mission'"
+            >
+              <v-icon icon="cube" size="16" />Mission
+            </button>
+          </div>
+
+          <FleetPanel
+            v-if="railTab === 'fleet'"
+            class="ops-layout__panel"
+            :robots="fleet.robots"
+            :selected-id="selectedVehicleId"
+            :paused="fleet.paused"
+            :rate="fleet.rate"
+            :tasks-completed="fleet.tasksCompleted"
+            :tasks-queued="fleet.tasksQueued"
+            :network-fault="fleet.networkFault"
+            @select="selectVehicle"
+            @toggle-pause="fleet.togglePaused()"
+            @cycle-rate="fleet.cycleRate()"
+            @close="panelOpen = false"
+          />
+
+          <TaskPanel
+            v-else-if="railTab === 'tasks'"
+            class="ops-layout__panel"
+            :tasks="fleet.tasks"
+            :queued-by-priority="fleet.queuedByPriority"
+            :events="fleet.events"
+            :metrics="fleet.metrics"
+            :selected-robot-id="selectedVehicleId"
+            :stale="!feedIsLive"
+            @select-robot="selectVehicle"
+            @raise-emergency="raiseEmergency"
+            @close="panelOpen = false"
+          />
+
+          <MissionPanel
+            v-else
+            v-model:edit-mode="editMode"
+            v-model:location="location"
+            class="ops-layout__panel"
+            :mission="mission"
+            :location-options="floorOps.locationOptions"
+            :stale="!feedIsLive"
+            @close="panelOpen = false"
+            @toggle-vehicle="toggleVehicle"
+            @select-stop="selectStop"
+          />
+        </div>
 
         <!-- ── The floor plan: this screen's anchor ── -->
         <!-- No `section-panel` here. That class is the 24px outer-panel tier and
@@ -309,14 +590,26 @@
            the 8px step — so the radius is set in the scoped block instead. -->
       <section ref="mapRegion" class="ops-layout__map pa-4 d-flex flex-column ga-3">
           <header class="d-flex align-center flex-wrap ga-3">
+            <!-- headline-small IS 24px/32px/0 tracking. No weight class — the
+                 scale's own 400 is what the design asks for. -->
+            <!-- `my-0`, not `mb-0`: `align-center` centres each item's MARGIN box,
+                 so zeroing only the bottom margin left the h2's UA top margin to
+                 push the text half its height below the row's centre line. -->
+            <h2 class="text-headline-small my-0">{{ hall.name }}</h2>
+
+            <!-- The chevron is its OWN bordered control, not an append-icon on a
+                 button wrapping the title — the design boxes the arrow alone. It
+                 therefore needs its own accessible name, since the title beside
+                 it is no longer part of the button. -->
             <v-menu>
               <template #activator="{ props: menu }">
-                <v-btn v-bind="menu" class="text-none px-2" variant="text" append-icon="chevronDown">
-                  <!-- headline-small IS 24px/32px/0 tracking. No weight class —
-                       the scale's own 400 is what the design asks for. -->
-                  <span class="text-headline-small">{{ hall.name }}</span>
-                </v-btn>
-              </template>
+                <v-btn
+                  v-bind="menu"
+                  class="ops-hall-toggle"
+                  variant="text"
+                  icon="chevronDown"
+                  :aria-label="`Change production hall — currently ${hall.name}`"
+                /></template>
               <v-list>
                 <v-list-item
                   v-for="opt in floorOps.hallOptions"
@@ -340,25 +633,36 @@
               Show mission
             </v-btn>
 
-            <v-chip
-              v-for="c in counters"
-              :key="c.id"
-              class="tabular"
-              variant="tonal"
-              size="large"
-              :color="c.tone"
-              :aria-label="`${c.value} ${c.label}`"
-            >
-              <template #prepend>
-                <AppIcon :name="c.icon" class="me-2" />
-              </template>
-              {{ c.value }}
-            </v-chip>
+            <!-- The counters are their own group so they can sit tighter (8px)
+                 than the header's 12px rhythm, without pulling the Live chip in
+                 with them — it is a different kind of thing and keeps its
+                 distance. -->
+            <div class="d-flex align-center ga-2">
+              <v-chip
+                v-for="c in counters"
+                :key="c.id"
+                class="tabular ops-chip"
+                variant="outlined"
+                size="large"
+                :color="c.tone"
+                :aria-label="`${c.value} ${c.label}`"
+              >
+                <template #prepend>
+                  <AppIcon :name="c.icon" class="me-2" />
+                </template>
+                {{ c.value }}
+              </v-chip>
+            </div>
 
             <!-- Freshness. Word + icon, and it degrades on its own. -->
+            <!-- The brand gradient is applied ONLY while the feed is live. A
+                 stale or dropped feed keeps its own status colour, because a
+                 frozen view that still wears the "live" treatment is exactly the
+                 failure CLAUDE.md's first domain rule exists to prevent. -->
             <v-chip
               variant="flat"
               size="large"
+              :class="{ 'ops-live': feedStatus === 'live' }"
               :color="feedPresentation.color"
               :aria-label="`Telemetry feed: ${feedPresentation.label}`"
             >
@@ -369,14 +673,41 @@
             </v-chip>
           </header>
 
+          <!-- 2D and 3D are two renderers over ONE simulation. Both read the
+               same `fleet.robots`, the same `robotRoute` and the same
+               `selectedVehicleId`, and neither owns any of it — so switching
+               swaps the visualisation and nothing else. Robot positions, routes,
+               tasks and states all live in the simulation layer and are
+               untouched by the toggle. Neither renderer contains any warehouse
+               behaviour; they only draw what the simulation has decided. -->
           <div class="ops-layout__canvas">
             <FloorMap
+              v-if="mapView === '2d'"
               :map="floorOps.map"
+              :vehicles="fleet.robots"
+              :cranes="fleet.cranes"
+              :robot-route="robotRoute"
+              :route-priority="routePriority"
+              :emergency-marks="emergencyMarks"
               :feed-status="feedStatus"
               :zoom="zoom"
-              :view="mapView"
               :selected-vehicle-id="selectedVehicleId"
               @select-vehicle="selectVehicle"
+            />
+            <WarehouseViewer
+              v-else
+              :map="floorOps.map"
+              :vehicles="fleet.robots"
+              :cranes="fleet.cranes"
+              :chargers="fleet.chargers"
+              :traffic="fleet.traffic"
+              :show-traffic="showTraffic"
+              :robot-route="robotRoute"
+              :route-priority="routePriority"
+              :emergency-marks="emergencyMarks"
+              :selected-vehicle-id="selectedVehicleId"
+              @select-vehicle="selectVehicle"
+              @select-object="notify(`Selected ${$event}`)"
             />
           </div>
 
@@ -405,6 +736,22 @@
             </div>
 
             <div class="d-flex align-center ga-2">
+              <!-- ⚠️ 3D ONLY, and hidden rather than disabled in 2D. The overlay
+                   is a floor decal built by `trafficLayer.ts`; the SVG map has no
+                   equivalent, and a control that silently does nothing in one of
+                   two views is worse than one that is not offered. `aria-pressed`
+                   carries the state, so it is never colour alone. -->
+              <button
+                v-if="mapView === '3d'"
+                class="map-ctl"
+                :class="{ 'map-ctl--on': showTraffic }"
+                type="button"
+                :aria-pressed="showTraffic"
+                aria-label="Traffic overlay"
+                @click="showTraffic = !showTraffic"
+              >
+                <v-icon icon="route" size="16" />
+              </button>
               <button class="map-ctl" type="button" aria-label="Zoom in" @click="zoomBy(0.25)">
                 <v-icon icon="plus" size="16" />
               </button>
@@ -467,9 +814,17 @@
    theme tokens only, and the gaps between elements are utility classes in the
    template — nothing here re-implements spacing or colour. */
 
+/* 463 is the design width and stays the CEILING, not a floor.
+   ⚠️ IT USED TO BE `flex: 0 0 463px` AND THAT CLIPPED THE OPERATOR'S OWN NAME.
+   The bar's two groups were both `flex-shrink-0`, so below about 1400px the row
+   was wider than the viewport and the overflow fell off the right-hand end —
+   the account block rendered as "Rob…/Adm…" with the menu chevron cut away, on
+   exactly the 1280-wide ruggedized tablets this screen is built for. The search
+   field is the one element here with slack in it, so it is the one that gives. */
 .topbar__search {
-  flex: 0 0 463px;
+  flex: 0 1 463px;
   width: 463px;
+  min-width: 180px;
 }
 
 /* Field shell: surface fill + 1px hairline, radius 99. Vuetify's `solo` variant
@@ -549,6 +904,19 @@
   letter-spacing: 0;
 }
 
+/* The right-hand group shrinks; the account block inside it does not.
+   ⚠️ `min-width: 0` ON EVERY CONTAINER IN THE CHAIN, not just the outer one —
+   that is the whole fix and it is easy to get half right. A flex item defaults
+   to `min-width: auto`, which refuses to shrink below its CONTENT, so a single
+   un-zeroed wrapper anywhere between the bar and the search field pins the
+   search at its full 463px and the overflow reappears further along the row.
+   The search itself keeps a 180px floor so it never collapses to an icon. */
+.topbar__group,
+.topbar__controls {
+  min-width: 0;
+  flex-shrink: 1;
+}
+
 /* Account block: 2px between the name row and the role. */
 .topbar__identity {
   display: flex;
@@ -592,6 +960,79 @@
   height: calc(100vh - 76px);
 }
 
+/* ── The detail rail's view switch ──────────────────────────────────────────
+   Same segmented control as the 2D/3D toggle under the plan, so "which view am
+   I in" looks the same wherever it is asked. */
+.rail-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 32px;
+  padding-right: 4px;
+  border: 1px solid rgb(var(--v-theme-outline-variant));
+  border-radius: var(--radius-md);
+  background-color: rgb(var(--v-theme-background));
+}
+
+.rail-toggle__seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1 1 0;
+  height: 100%;
+  padding: 6px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  line-height: 20px;
+  color: rgb(var(--v-theme-on-surface-weak));
+  appearance: none;
+  border: none;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.rail-toggle__seg--on {
+  color: rgb(var(--v-theme-on-surface));
+  background-image: linear-gradient(
+    129.73deg,
+    rgb(var(--v-theme-primary)) 17.176%,
+    rgb(var(--v-theme-primary-deep)) 100%
+  );
+}
+
+.rail-toggle__seg--on .v-icon { opacity: 0.6; }
+
+/* Live emergency count on the Tasks tab. Sits on the segment rather than in the
+   panel because its whole job is to be seen from the OTHER two views. */
+.rail-toggle__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background-color: rgb(var(--v-theme-error));
+  color: rgb(var(--v-theme-background));
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.rail-toggle__seg:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-on-surface));
+  outline-offset: 2px;
+}
+
+/* Whichever panel is showing takes the height the toggle leaves. */
+.ops-layout__panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .ops-layout__rail {
   /* NOT a scroll container. The rail already has one: `.rail__mission` is
      `flex: 1 0 0` + `overflow-y: auto`, so it absorbs the leftover height and
@@ -601,6 +1042,56 @@
      card is the scope card, and the card flexes to whatever is left. */
   overflow: hidden;
   min-height: 0;
+}
+
+/* ── Map panel header ────────────────────────────────────────────────────── */
+
+/* Forcing width/height alone is not enough to centre the glyph: VBtn keeps the
+   min-width and horizontal padding from its size variant, so the content box
+   stays wider than the square we drew and the icon settles off-centre inside it.
+   Zero both, then let the content flexbox do the centring against the real box. */
+.ops-hall-toggle.v-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border: 1px solid rgb(var(--v-theme-outline-variant)); /* #2E3849 */
+  border-radius: var(--radius-sm);
+}
+
+.ops-hall-toggle.v-btn :deep(.v-btn__content) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.ops-hall-toggle.v-btn :deep(.v-icon) {
+  margin: 0;
+  font-size: 16px;
+}
+
+/* `outlined` rather than `tonal`: the chips carry a flat background and a neutral
+   hairline, but their icon and value stay in the status colour, so severity is
+   still readable without the fill. */
+.ops-chip.v-chip {
+  border-color: rgb(var(--v-theme-outline-medium)); /* #5F6877 */
+  background-color: rgb(var(--v-theme-background)); /* #020D20 */
+}
+
+/* Brand gradient. `background-image` beats the `color` prop's background-color
+   without needing !important, and leaves the chip's own text colour intact. */
+.ops-live.v-chip {
+  background-image: linear-gradient(
+    135deg,
+    rgb(var(--v-theme-primary)) 0%,
+    rgb(var(--v-theme-primary-violet)) 100%
+  );
+  /* Dark ink on the bright gradient. Scoped to `.ops-live`, so a stale or dropped
+     feed keeps its own foreground along with its own fill. The icon rides
+     currentColor, so it follows without a second rule. */
+  color: rgb(var(--v-theme-background)); /* #020D20 */
 }
 
 .ops-layout__map {
@@ -682,6 +1173,15 @@
 }
 
 .map-ctl:hover { background-color: var(--neutral-bg); }
+
+/* A pressed toggle. The border weight changes with the fill, so the on state is
+   readable without relying on the colour — the same rule the vehicle markers
+   follow, and the reason `aria-pressed` carries it for assistive tech too. */
+.map-ctl--on {
+  border-color: rgb(var(--v-theme-primary-bright));
+  background-color: rgba(var(--v-theme-primary-bright), 0.16);
+  color: rgb(var(--v-theme-primary-bright));
+}
 
 .map-toggle__seg:focus-visible,
 .map-ctl:focus-visible {

@@ -122,19 +122,19 @@ export interface ChartPalette {
  */
 export const chartPalette: ChartPalette = {
   categorical: [
-    { label: 'Azure', hex: '#0974FB' },  // series 1 — brand primary
-    { label: 'Gold', hex: '#C77D0E' },   // series 2
-    { label: 'Violet', hex: '#7C4DFF' }, // series 3
-    { label: 'Teal', hex: '#0E9488' },   // series 4
-    { label: 'Indigo', hex: '#3B4CCA' }, // series 5
-    { label: 'Rose', hex: '#DB2777' },   // series 6
+    { label: 'primary Blue', hex: '#4C8AE8' },  // series 1 — brand primary
+    { label: 'Mint', hex: '#62EBCD' },   // warehouse assets / active routes
+    { label: 'Purple', hex: '#9579FE' }, // brand gradient end
+    { label: 'Sky Blue', hex: '#68BEFF' },   // information
+    { label: 'Success', hex: '#6EB185' }, // healthy status
+    { label: 'Error', hex: '#D87894' },   // critical alerts
   ],
 
   sequential: {
     // light card (#FFFFFF): palest step clears the 2:1 mark floor
-    light: ['#93B7EE', '#6BA0E8', '#4788E0', '#2A71D4', '#1153B0', '#0A3A80'],
+    light: ['#D8EBFF', '#B8D8FF', '#91C2FF', '#68BEFF', '#4C8AE8', '#3662A5'],
     // dark card (#0B1E33): bright→mid; the dark end still clears the navy surface
-    dark: ['#D4E6FF', '#ABCCFF', '#83B0FF', '#5B93F5', '#3D77DB', '#2A61BC'],
+    dark: ['#D1F9F2', '#A6F3E7', '#62EBCD', '#40E6C2', '#2DA38A', '#3662A5'],
   },
 
   diverging: {

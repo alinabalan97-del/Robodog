@@ -26,11 +26,11 @@
    * product can have (CLAUDE.md → Domain rules). The skeleton stays crisp so the
    * plan is still readable; what stops being trustworthy stops looking sharp.
    *
-   * ONE ROUTE IS HIGHLIGHTED, THE REST ARE QUIET. The selected vehicle's mission
-   * arrives split in two — `travelled` and `ahead` — and only those two get the
-   * wide glowing band. Every other line on the plan (the aisle network, other
-   * units' paths) stays thin. Select a different vehicle and the highlight moves;
-   * a mission leg whose vehicle is not selected renders as a secondary path.
+   * EXACTLY ONE ROUTE IS DRAWN, and it belongs to the selected unit. It arrives
+   * split in two — `travelled` and `ahead` — and both come from the simulation,
+   * so what is highlighted is genuinely where that robot has been and is going.
+   * Sixteen routes at once would be noise; none at all would leave the operator
+   * guessing. Select a different unit and the highlight moves with it.
    *
    * Colors come from theme tokens via CSS vars, so both themes track automatically.
    */
@@ -40,25 +40,77 @@
     FeedStatus,
     FloorMap,
     FloorNode,
-    FloorRoute,
-    FloorVehicle,
     FloorZone,
     NodeKind,
     ShellVertex,
-    VehicleForm,
   } from '@/data/floorOps'
+  import { ROBOT_STATE_LABEL, taskPriorities } from '@/stores/fleet'
+  import type {
+    EmergencyMark,
+    FleetCrane,
+    FleetRobot,
+    RobotState,
+    RobotTypeId,
+    TaskPriority,
+  } from '@/stores/fleet'
+  import { corridors, stations } from '@/data/fleet'
+  import type { RobotRoutePath } from '@/data/fleet'
+  import { ASRS_PLAN_UNITS_PER_METRE, asrsCraneSize, asrsLevels, levelHeightM } from '@/data/asrs'
 
   const props = withDefaults(defineProps<{
     map: FloorMap
     feedStatus: FeedStatus
+    /**
+     * The LIVE fleet, straight from the simulation layer — not `map.vehicles`,
+     * which is only the static seed. Both this view and the 3D one render this
+     * same array, which is what makes them synchronised rather than merely
+     * similar. This component computes nothing about robot behaviour; it draws
+     * what it is given.
+     */
+    vehicles: FleetRobot[]
+    /**
+     * The ASRS stacker cranes.
+     *
+     * ⚠️ THEY MOVE NOW, so they are drawn WITH the traffic rather than under it:
+     * each one runs a rail inside its storage aisle, and the same two numbers
+     * the 3D scene poses it with — position along the rail, carriage height —
+     * are what this draws. A plan cannot show the vertical directly, so the
+     * carriage is drawn travelling up the mast tile instead.
+     */
+    cranes?: FleetCrane[]
+    /**
+     * The selected unit's assignment, driven and remaining. Drawn as the one
+     * loud route on the plan — progress along a route reads at a glance, where
+     * an ETA has to be decoded.
+     */
+    robotRoute?: RobotRoutePath | null
+    /**
+     * The urgency of the selected unit's job, which is what colours its route.
+     *
+     * Null when it has no task — the route then keeps the neutral "ahead"
+     * treatment, because a colourless drive to a charger is not a priority
+     * level and must not be drawn as one.
+     */
+    routePriority?: TaskPriority | null
+    /**
+     * Pickup and delivery points of every LIVE EMERGENCY job.
+     *
+     * ⚠️ THESE ARE THE ONLY MARKERS THAT FLASH, and only while a genuine
+     * emergency is unfinished — a pulse is the loudest thing this plan can do
+     * and it stops meaning anything the moment it is used for a second purpose.
+     * They arrive as resolved coordinates rather than as task rows: resolving a
+     * station id to a position is a lookup the screen owns, not the renderer.
+     */
+    emergencyMarks?: EmergencyMark[]
     /** 1 = fit the whole hall; above that zooms toward the centre. */
     zoom?: number
-    /** '3d' tilts the same plan into an isometric view — same data, no extra dataset. */
-    view?: '2d' | '3d'
     selectedVehicleId?: string | null
   }>(), {
+    cranes: () => [],
+    robotRoute: null,
+    routePriority: null,
+    emergencyMarks: () => [],
     zoom: 1,
-    view: '2d',
     selectedVehicleId: null,
   })
 
@@ -137,10 +189,6 @@
 
   const shellPath = computed(() => trace(props.map.outline as ShellVertex[], 12, true))
 
-  function routePath (r: FloorRoute) {
-    return trace(r.points, r.corner ?? 18, r.closed)
-  }
-
   // ── Zones ───────────────────────────────────────────────────────────────────
 
   /**
@@ -166,23 +214,40 @@
 
   // ── Routes ──────────────────────────────────────────────────────────────────
 
-  const lanes = computed(() => props.map.routes.filter(r => r.kind === 'lane'))
-  const paths = computed(() => props.map.routes.filter(r => r.kind !== 'lane'))
+  /**
+   * The aisle network, drawn from the SIMULATION's corridors rather than from
+   * the plan's decorative lane polylines.
+   *
+   * This matters more than it looks. The dataset's lanes were scenery — a
+   * drawing of aisles — and the robots are routed along a declared network that
+   * is not quite the same shape. Drawing the scenery while the units drive the
+   * network puts robots visibly beside the aisles they are supposedly following,
+   * which is exactly the kind of quiet disagreement between a view and its data
+   * that makes an operator stop trusting the screen. What is drawn is now what
+   * is driven, in both views.
+   *
+   * Straight segments, so no fillet: a corridor IS a straight run between two
+   * junctions, and rounding it would re-introduce a shape the router never uses.
+   */
+  const lanes = computed(() =>
+    corridors.map(corridor => ({
+      id: corridor.id,
+      d: corridor.axis === 'h'
+        ? `M ${corridor.from} ${corridor.at} L ${corridor.to} ${corridor.at}`
+        : `M ${corridor.at} ${corridor.from} L ${corridor.at} ${corridor.to}`,
+    })),
+  )
 
   /**
-   * Which treatment a path gets. A mission leg only keeps the highlight while its
-   * own vehicle is the selected one; otherwise it drops to the quiet treatment,
-   * so exactly one route is ever loud.
+   * Where a robot can stop. Rack faces are left off — thirty more pips would
+   * bury the aisles they sit on, and the racking behind them already says where
+   * the picking happens.
    */
-  function routeKind (r: FloorRoute) {
-    const highlighted = props.selectedVehicleId === null || r.vehicleId === props.selectedVehicleId
-    return r.kind === 'secondary' || !highlighted ? 'secondary' : r.kind
-  }
-
-  function routeClasses (r: FloorRoute) {
-    const kind = routeKind(r)
-    return ['route', `route--${kind}`, r.tone && kind === 'secondary' ? `route--${r.tone}` : '']
-  }
+  const stops = computed(() =>
+    stations
+      .filter(station => station.kind !== 'rack')
+      .map(station => ({ id: station.id, kind: station.kind, x: station.x, y: station.y })),
+  )
 
   // ── Fixed things ────────────────────────────────────────────────────────────
 
@@ -199,34 +264,159 @@
 
   const alertedNodes = computed(() => props.map.nodes.filter(n => n.alert))
 
-  const vehicleIcon: Record<VehicleForm, string> = {
-    shuttle: 'vehicle',
-    quadruped: 'asset',
+  /** One glyph per chassis, so the three types are tellable apart on the plan. */
+  const vehicleIcon: Record<RobotTypeId, string> = {
+    A: 'vehicle',
+    B: 'shipping',
+    C: 'asset',
   }
 
-  /** Every state gets a word — the map never conveys status by color alone. */
-  const vehicleStateLabel: Record<FloorVehicle['state'], string> = {
-    moving: 'moving',
-    loading: 'loading',
-    charging: 'charging',
-    blocked: 'blocked',
-    idle: 'idle',
+  /** CSS-safe modifier for a chassis type: 'A' → 'vehicle--type-a'. */
+  const typeClass = (id: RobotTypeId) => `vehicle--type-${id.toLowerCase()}`
+
+  /**
+   * Facing, as a triangle on the tile's leading edge. Direction is drawn as a
+   * SHAPE rather than as a rotated icon so it survives the tile's other states
+   * and stays readable at wall-display distance.
+   *
+   * `headingRad` is measured CLOCKWISE FROM PLAN-NORTH — the one convention the
+   * simulation, this view and the 3D layer all share — so the forward vector is
+   * (sin h, −cos h) in plan space, where y runs down the page.
+   */
+  function headingPoints (v: FleetRobot) {
+    const forwardX = Math.sin(v.headingRad)
+    const forwardY = -Math.cos(v.headingRad)
+    return ([[20, 0], [13, -5], [13, 5]] as Array<[number, number]>)
+      .map(([along, across]) => {
+        const x = v.x + along * forwardX - across * forwardY
+        const y = v.y + along * forwardY + across * forwardX
+        return `${x.toFixed(1)},${y.toFixed(1)}`
+      })
+      .join(' ')
   }
 
-  function vehicleLabel (v: FloorVehicle) {
-    const base = `Vehicle ${v.code}, ${vehicleStateLabel[v.state]}, battery ${v.batteryPct} percent`
-    return v.alert ? `${base}. Alert: ${v.alert}` : base
+  /** Every state gets a word — the map never conveys status by colour alone. */
+  const stateLabel = (state: RobotState) => ROBOT_STATE_LABEL[state].toLowerCase()
+
+  // ── The ASRS cranes ─────────────────────────────────────────────────────────
+  //
+  // Drawn TO SCALE across the aisle, from the same metres the 3D scene builds
+  // from: a plan that showed the crane wider than its aisle would contradict the
+  // other view about whether the machine fits, which is the whole question this
+  // change was about.
+
+  /** The machine's footprint on the plan, in plan units. */
+  const CRANE_W = asrsCraneSize.widthM * ASRS_PLAN_UNITS_PER_METRE
+  const CRANE_L = asrsCraneSize.lengthM * ASRS_PLAN_UNITS_PER_METRE
+
+  /**
+   * How far up the mast tile the carriage is drawn.
+   *
+   * Vertical is the one axis a top-down plan cannot show, so the carriage is
+   * drawn travelling along the tile's LONG axis instead — the same fraction of
+   * the same stroke the 3D carriage climbs, so the two views always name the
+   * same level. Guarded against a zero-height stroke, which would put the rect
+   * at NaN and silently drop it.
+   */
+  const CRANE_STROKE_M = Math.max(0.01, levelHeightM(asrsLevels.count))
+  const carriageOffset = (c: FleetCrane) =>
+    (Math.min(1, Math.max(0, c.carriageM / CRANE_STROKE_M)) - 0.5) * (CRANE_L - 6)
+
+  /** Everything the crane tile shows visually, said in words for assistive tech. */
+  function craneLabel (c: FleetCrane) {
+    const parts = [
+      c.label,
+      c.activity.toLowerCase(),
+      `carriage at level ${c.level} of ${asrsLevels.count}`,
+      `${c.carriageM.toFixed(2)} metres above the floor`,
+    ]
+    if (c.bayAddress) parts.push(`bay ${c.bayAddress}`)
+    if (c.deckCargoId) parts.push(`${c.deckCargoId} waiting on the transfer deck`)
+    if (c.pending) parts.push('cycle not yet dispatched')
+    return parts.join(', ')
+  }
+
+  /** The reference an operator calls the unit by: AMR-07 → "07". */
+  const shortTag = (v: FleetRobot) => v.code.split('-')[1] ?? v.code
+
+  /** Everything the marker shows visually, said in words for assistive tech. */
+  function vehicleLabel (v: FleetRobot) {
+    const parts = [
+      `Robot ${v.code}`,
+      `type ${v.typeId}`,
+      stateLabel(v.state),
+      v.activity.toLowerCase(),
+      v.carrying ? 'carrying a pallet' : 'empty',
+      `battery ${Math.round(v.batteryPct)} percent`,
+      `speed ${v.speedMps.toFixed(1)} metres per second`,
+    ]
+    if (v.taskKind) parts.push(v.taskLabel.toLowerCase())
+    if (v.destinationLabel) parts.push(`heading to ${v.destinationLabel}`)
+    if (v.alert) parts.push(`alert: ${v.alert}`)
+    return parts.join(', ')
+  }
+
+  // ── The selected unit's live route ──────────────────────────────────────────
+  // Drawn with the same two treatments the static mission legs use, so "already
+  // driven" and "still to drive" read identically whichever produced them.
+
+  const travelledPath = computed(() =>
+    (props.robotRoute?.travelled.length ?? 0) >= 2 ? trace(props.robotRoute!.travelled, 14) : '',
+  )
+  const aheadPath = computed(() =>
+    (props.robotRoute?.ahead.length ?? 0) >= 2 ? trace(props.robotRoute!.ahead, 14) : '',
+  )
+
+  /**
+   * ── THE ROUTE'S COLOUR IS THE JOB'S URGENCY ─────────────────────────────────
+   *
+   * Resolved to a CSS colour here rather than switched by a class, because the
+   * levels and their tokens live in one table (`taskPriorities`) and a stylesheet
+   * cannot read it. Adding a fifth priority is one entry there and no change in
+   * this file — which is the whole reason the table exists.
+   *
+   * ⚠️ NOT THE SAME TOKEN THE CHIPS USE. A chip separates four levels from each
+   * other on a panel; a route has to separate itself from racking, aisles and
+   * sixteen robot markers. Normal work is where the two disagree — green reads
+   * as "fine" on a chip and fights the racking on the floor — so routes take
+   * `routeTone`. See the note on it in `src/data/fleet.ts`.
+   */
+  const routeInk = computed(() => {
+    const priority = props.routePriority
+    if (!priority) return null
+    return `rgb(var(--v-theme-${taskPriorities[priority].routeTone}))`
+  })
+
+  /** The soft under-glow, at the same hue. Alpha needs the raw channel triple. */
+  const routeGlow = computed(() => {
+    const priority = props.routePriority
+    if (!priority) return null
+    return `rgba(var(--v-theme-${taskPriorities[priority].routeTone}), 0.2)`
+  })
+
+  /** Emergencies are the one route that pulses, matching their markers. */
+  const routeIsUrgent = computed(() =>
+    props.routePriority !== null && taskPriorities[props.routePriority].flashes,
+  )
+
+  /** Everything the marker means, in words — the pulse is never the only signal. */
+  function markLabel (mark: EmergencyMark) {
+    return `Emergency ${mark.role === 'pickup' ? 'pickup' : 'delivery'}: ${mark.label}. ${mark.taskLabel}`
   }
 </script>
 
 <template>
-  <div class="floor-map" :class="[`floor-map--${view}`, { 'floor-map--degraded': !isLive }]">
+  <div class="floor-map" :class="{ 'floor-map--degraded': !isLive }">
+    <!-- The label counts `vehicles`, not `map.vehicles`: the latter is the
+         dataset's frozen sample and stopped being what this map draws when the
+         simulation took over. A screen reader was being told seven units were
+         shown while sixteen were on screen. -->
     <svg
       class="floor-map__svg"
       :viewBox="viewBox"
       preserveAspectRatio="xMidYMid meet"
       role="group"
-      :aria-label="`Floor plan. ${map.vehicles.length} vehicles shown.`"
+      :aria-label="`Floor plan. ${vehicles.length} robots shown.`"
     >
       <!-- 1 · Hall shell -->
       <path class="hall" :d="shellPath" />
@@ -250,10 +440,14 @@
       <!-- 3 · The aisle network. Permanent infrastructure — never highlighted,
            and never dimmed, because it is not telemetry. -->
       <g class="lanes">
-        <path v-for="l in lanes" :key="l.id" class="lane" :d="routePath(l)" />
-        <template v-for="l in lanes" :key="`${l.id}-stops`">
-          <circle v-for="(s, i) in l.stops ?? []" :key="i" class="lane__pip" :cx="s[0]" :cy="s[1]" r="3.2" />
-        </template>
+        <path v-for="l in lanes" :key="l.id" class="lane" :d="l.d" />
+        <circle
+          v-for="s in stops"
+          :key="s.id"
+          :class="['lane__pip', `lane__pip--${s.kind}`]"
+          :cx="s.x" :cy="s.y"
+          :r="s.kind === 'hold' ? 3 : 4"
+        />
       </g>
 
       <!-- 4 · Fixed equipment and goods. Tiles are static; their alert badges
@@ -286,18 +480,63 @@
       <!-- 5 · The moving layer. Everything in here is live telemetry, and all of
            it degrades together the moment the feed stops being current. -->
       <g class="moving-layer">
-        <!-- Routes: quiet ones first so the highlighted mission sits on top. -->
-        <template v-for="r in paths" :key="r.id">
-          <path :class="[...routeClasses(r), 'route__glow']" :d="routePath(r)" />
-          <path :class="[...routeClasses(r), 'route__band']" :d="routePath(r)" />
-          <path v-if="routeKind(r) === 'travelled'" :class="[...routeClasses(r), 'route__pips']" :d="routePath(r)" />
-          <circle
-            v-for="(s, i) in (routeKind(r) === 'ahead' ? r.stops ?? [] : [])"
-            :key="i"
-            class="route__waypoint"
-            :cx="s[0]" :cy="s[1]" r="3.6"
+        <!-- The dataset's own mission legs are deliberately NOT drawn. They
+             describe vehicles that are no longer on this floor — the simulation
+             is the vehicle layer now — and a route with no robot on it is a
+             claim the plan cannot back up. The one route shown is the selected
+             unit's, below, and it comes from the same simulation as the units. -->
+
+        <!-- The ASRS stacker cranes. Two axes, drawn as two things that move:
+             the machine slides along its rail, and the carriage slides along the
+             machine. Both come straight from the simulation, so this and the 3D
+             scene cannot disagree about where a crane is or what level it is
+             working. Whether it is WORKING is signalled by a ring plus the word
+             in its label, never by a colour on its own. -->
+        <g v-for="c in cranes" :key="c.id" :class="['crane', { 'crane--working': c.working }]">
+          <title>{{ craneLabel(c) }}</title>
+
+          <!-- The rail. Drawn the full length of the crane's travel, because how
+               far a machine CAN go is the one thing a still frame cannot say. -->
+          <line
+            class="crane__rail"
+            :x1="c.railFrom" :y1="c.y" :x2="c.railTo" :y2="c.y"
           />
-        </template>
+          <!-- The pick-and-deposit deck at the aisle end, and the load on it. -->
+          <rect
+            class="crane__deck"
+            :x="c.transferX - 5" :y="c.y - CRANE_W / 2" width="10" :height="CRANE_W"
+            rx="2"
+          />
+          <rect
+            v-if="c.deckCargoId"
+            class="crane__cargo"
+            :x="c.transferX - 3.5" :y="c.y - 3.5" width="7" height="7" rx="1.5"
+          />
+
+          <circle v-if="c.working" class="crane__halo" :cx="c.x" :cy="c.y" r="17" />
+
+          <!-- The machine itself, TO SCALE: long along the rail, narrow across
+               the aisle. That proportion is the point — a crane drawn as a square
+               tile is what made the old one look as wide as the aisle it runs
+               down. -->
+          <rect
+            class="crane__body"
+            :x="c.x - CRANE_L / 2" :y="c.y - CRANE_W / 2"
+            :width="CRANE_L" :height="CRANE_W" rx="2.5"
+          />
+          <!-- The carriage. Vertical is the one axis a plan cannot show, so its
+               height is drawn as travel ALONG the machine instead. -->
+          <rect
+            class="crane__carriage"
+            :x="c.x + carriageOffset(c) - 3" :y="c.y - CRANE_W / 2 + 1"
+            width="6" :height="CRANE_W - 2" rx="1.5"
+          />
+          <rect
+            v-if="c.cargoId"
+            class="crane__cargo"
+            :x="c.x + carriageOffset(c) - 2.5" :y="c.y - 2.5" width="5" height="5" rx="1"
+          />
+        </g>
 
         <!-- Equipment alerts. Split from their tile above so the badge — which IS
              live state — dims with the feed while the plan stays legible. -->
@@ -306,11 +545,78 @@
           <text class="badge__mark" :x="n.x + 12" :y="n.y - 8.5">!</text>
         </g>
 
-        <!-- Vehicles. Focusable so the plan is reachable without a pointer. -->
+        <!-- The selected unit's live assignment. Two treatments, one route:
+             what it has driven, and what it still has to. This replaces the
+             static mission legs above whenever a robot is selected. -->
+        <!-- The half still to drive takes the JOB'S colour; the half already
+             driven keeps its own neutral treatment, because progress is a
+             different question from urgency and mixing them would leave the
+             operator unable to read either. -->
+        <template v-if="travelledPath || aheadPath">
+          <path v-if="travelledPath" class="route route--travelled route__glow" :d="travelledPath" />
+          <path v-if="travelledPath" class="route route--travelled route__band" :d="travelledPath" />
+          <path v-if="travelledPath" class="route route--travelled route__pips" :d="travelledPath" />
+          <path
+            v-if="aheadPath"
+            class="route route--ahead route__glow"
+            :class="{ 'route--urgent': routeIsUrgent }"
+            :style="routeGlow ? { stroke: routeGlow } : undefined"
+            :d="aheadPath"
+          />
+          <path
+            v-if="aheadPath"
+            class="route route--ahead route__band"
+            :class="{ 'route--urgent': routeIsUrgent }"
+            :style="routeInk ? { stroke: routeInk } : undefined"
+            :d="aheadPath"
+          />
+        </template>
+
+        <!-- ── Emergency pickup and delivery ─────────────────────────────────
+             The loudest thing on the plan, and reserved for exactly one meaning.
+             Each mark carries THREE independent signals so none of them is
+             load-bearing on its own: a pulsing ring (motion), a distinct shape
+             per role (square for collect, diamond for deliver) and a full
+             description in its accessible name. -->
         <g
-          v-for="v in map.vehicles"
+          v-for="mark in emergencyMarks"
+          :key="mark.id"
+          class="emergency"
+          role="img"
+          :aria-label="markLabel(mark)"
+        >
+          <title>{{ markLabel(mark) }}</title>
+          <circle class="emergency__pulse" :cx="mark.x" :cy="mark.y" r="26" />
+          <circle class="emergency__ring" :cx="mark.x" :cy="mark.y" r="22" />
+          <rect
+            v-if="mark.role === 'pickup'"
+            class="emergency__mark"
+            :x="mark.x - 8" :y="mark.y - 8" width="16" height="16" rx="2"
+          />
+          <rect
+            v-else
+            class="emergency__mark"
+            :x="mark.x - 8" :y="mark.y - 8" width="16" height="16" rx="2"
+            :transform="`rotate(45 ${mark.x} ${mark.y})`"
+          />
+        </g>
+
+        <!-- Robots. Focusable so the plan is reachable without a pointer. -->
+        <g
+          v-for="v in vehicles"
           :key="v.id"
-          :class="['vehicle', `vehicle--${v.state}`, { 'vehicle--selected': v.id === selectedVehicleId }]"
+          :class="[
+            'vehicle',
+            `vehicle--${v.state}`,
+            typeClass(v.typeId),
+            {
+              'vehicle--selected': v.id === selectedVehicleId,
+              // Highlighted for the same reason its route is: this unit is the
+              // one running the emergency. The word is already in its
+              // accessible name and in the roster beside the map.
+              'vehicle--urgent': v.taskPriority === 'emergency',
+            },
+          ]"
           tabindex="0"
           role="button"
           :aria-label="vehicleLabel(v)"
@@ -320,14 +626,39 @@
           @keydown.space.prevent="emit('selectVehicle', v.id)"
         >
           <title>{{ vehicleLabel(v) }}</title>
+          <!-- The urgent halo sits UNDER everything, so it reads as a glow
+               around the machine rather than as a ring drawn on it. -->
+          <circle
+            v-if="v.taskPriority === 'emergency'"
+            class="vehicle__urgent-halo"
+            :cx="v.x" :cy="v.y" r="24"
+          />
+          <!-- Direction first, so the tile paints over its base. -->
+          <polygon class="vehicle__heading" :points="headingPoints(v)" />
           <rect class="vehicle__ring" :x="v.x - 18" :y="v.y - 18" width="36" height="36" rx="11" />
           <rect class="vehicle__tile" :x="v.x - 14" :y="v.y - 14" width="28" height="28" rx="8" />
           <foreignObject :x="v.x - 8.5" :y="v.y - 8.5" width="17" height="17">
             <div class="glyph glyph--vehicle" xmlns="http://www.w3.org/1999/xhtml">
-              <AppIcon :name="vehicleIcon[v.form]" />
+              <AppIcon :name="vehicleIcon[v.typeId]" />
             </div>
           </foreignObject>
-          <text class="tag tag--vehicle" :x="v.x + 15" :y="v.y - 19">{{ v.tag }}</text>
+          <!-- Loaded vs empty, as a filled corner block: a shape, not a tint. -->
+          <rect
+            v-if="v.carrying"
+            class="vehicle__cargo"
+            :x="v.x - 13" :y="v.y + 6" width="10" height="6" rx="1.5"
+          />
+          <!-- Charge, as a length. A bar under the tile is readable at distance
+               where a tinted tile is not, and it carries its own low-charge
+               state rather than relying on the fill colour to say so. -->
+          <rect class="vehicle__charge-track" :x="v.x - 10" :y="v.y + 16" width="20" height="3.5" rx="1.75" />
+          <rect
+            class="vehicle__charge-fill"
+            :class="{ 'vehicle__charge-fill--low': v.batteryPct < 20 }"
+            :x="v.x - 10" :y="v.y + 16"
+            :width="Math.max(0.5, (v.batteryPct / 100) * 20)" height="3.5" rx="1.75"
+          />
+          <text class="tag tag--vehicle" :x="v.x + 15" :y="v.y - 19">{{ shortTag(v) }}</text>
           <circle v-if="v.alert" class="badge" :cx="v.x + 12" :cy="v.y - 12" r="6.5" />
           <text v-if="v.alert" class="badge__mark" :x="v.x + 12" :y="v.y - 8.5">!</text>
         </g>
@@ -351,10 +682,10 @@
   transition: transform 0.3s ease;
 }
 
-/* The isometric view is the same plan on a tilt — no second dataset, no fake depth. */
-.floor-map--3d .floor-map__svg {
-  transform: perspective(1600px) rotateX(52deg) rotateZ(-28deg) scale(0.72);
-}
+/* The old CSS-tilt "3D" is gone: 3D is now a real scene
+   (src/components/warehouse/WarehouseViewer.vue) and this component renders the
+   2D view only. A perspective transform on the SVG was never a floor plan in
+   depth — it was the same flat drawing on a slant. */
 
 @media (prefers-reduced-motion: reduce) {
   .floor-map__svg { transition: none; }
@@ -406,9 +737,29 @@
   stroke-linecap: round;
 }
 
+/* Where a robot can stop, by what it stops for. Each is a different fill AND a
+   different size, so the three kinds stay tellable apart in bad light. */
 .lane__pip {
   fill: rgb(var(--v-theme-secondary));
   opacity: 0.9;
+}
+
+.lane__pip--dock { fill: rgb(var(--v-theme-warning)); }
+.lane__pip--charger { fill: rgb(var(--v-theme-tertiary-bright)); }
+
+/* Workstations are hollow squares rather than discs — the AGVs' whole round trip
+   runs between four of these, so they have to be findable at a glance and
+   tellable from a dock without reading the colour. */
+.lane__pip--work {
+  fill: rgb(var(--v-theme-background));
+  stroke: rgb(var(--v-theme-primary-bright));
+  stroke-width: 2;
+}
+
+.lane__pip--hold {
+  fill: none;
+  stroke: rgba(var(--v-theme-outline-medium), 0.9);
+  stroke-width: 1.4;
 }
 
 /* ── Routes ── */
@@ -435,26 +786,56 @@
   stroke-dasharray: 0.1 9;
 }
 
+/* The default when the selected unit has NO task — a drive to a charger or back
+   to a bay. Any job overrides both of these inline with its priority's own
+   token; see `routeInk` / `routeGlow`. Kept as the neutral base rather than
+   removed, because a unit with nothing to do still has a route to draw. */
 .route--ahead.route__glow { stroke: rgba(var(--v-theme-primary-bright), 0.2); }
 .route--ahead.route__band { stroke: rgb(var(--v-theme-primary-bright)); }
 
-.route__waypoint {
-  fill: rgb(var(--v-theme-on-surface));
-  opacity: 0.9;
+/* Emergencies pulse. This is the ONLY animated route treatment, and it is tied
+   to `taskPriorities[…].flashes` rather than to the colour, so a re-themed
+   emergency keeps its motion and nothing else acquires it. */
+.route--urgent {
+  animation: route-urgent 1.1s ease-in-out infinite;
 }
 
-/* Quiet by default; the tone modifiers only keep two crossing paths tellable
-   apart, they don't promote either one. */
-.route--secondary.route__glow { stroke: rgba(var(--v-theme-outline-medium), 0.18); }
-.route--secondary.route__band {
-  stroke: rgba(var(--v-theme-outline-medium), 0.9);
-  stroke-width: 8;
+@keyframes route-urgent {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 
-.route--rose.route__glow { stroke: rgba(var(--v-theme-error), 0.2); }
-.route--rose.route__band { stroke: rgba(var(--v-theme-error), 0.85); }
-.route--amber.route__glow { stroke: rgba(var(--v-theme-warning), 0.18); }
-.route--amber.route__band { stroke: rgba(var(--v-theme-warning), 0.75); }
+/* ── Emergency pickup and delivery marks ────────────────────────────────────
+   Three independent signals per mark — motion, shape and an accessible name —
+   so removing any one of them still leaves the meaning readable. Colour is the
+   fourth and the least load-bearing. */
+.emergency__pulse {
+  fill: rgba(var(--v-theme-error), 0.25);
+  stroke: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: emergency-pulse 1.4s ease-out infinite;
+}
+
+.emergency__ring {
+  fill: none;
+  stroke: rgb(var(--v-theme-error));
+  stroke-width: 2.5;
+}
+
+.emergency__mark {
+  fill: rgb(var(--v-theme-error));
+  stroke: rgb(var(--v-theme-background));
+  stroke-width: 2;
+}
+
+@keyframes emergency-pulse {
+  0% { opacity: 0.75; transform: scale(0.6); }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+
+/* There is no "secondary route" treatment any more: only the selected unit's
+   route is drawn, so there is never a second one to hold back. */
 
 /* ── Fixed equipment and goods ── */
 .node__tile {
@@ -515,6 +896,64 @@
 
 .vehicle__tile { fill: rgb(var(--v-theme-on-surface)); }
 
+/* Chassis type rides the DIRECTION arrow rather than the tile, so type and
+   status never compete for the same surface — and because the arrow is a shape,
+   the three types stay distinguishable without relying on colour. */
+.vehicle__heading {
+  fill: rgb(var(--v-theme-on-surface-weak));
+  transition: fill 0.2s ease;
+}
+
+.vehicle--type-a .vehicle__heading { fill: rgb(var(--v-theme-primary-bright)); }
+.vehicle--type-b .vehicle__heading { fill: rgb(var(--v-theme-secondary)); }
+.vehicle--type-c .vehicle__heading { fill: rgb(var(--v-theme-primary-accent)); }
+
+/* Queued behind another robot — dimmed arrow, so a jam reads as a jam. */
+.vehicle--waiting .vehicle__heading { fill: rgb(var(--v-theme-outline-medium)); }
+
+/* Parked and charging units are not going anywhere: no direction to show, and
+   leaving a bright arrow on them would read as motion at a glance. */
+.vehicle--idle .vehicle__heading,
+.vehicle--waitingForNextTask .vehicle__heading,
+.vehicle--charging .vehicle__heading { fill: rgba(var(--v-theme-outline-medium), 0.55); }
+
+.vehicle__cargo { fill: rgb(var(--v-theme-warning)); }
+
+/* ── Charge, drawn as a length ── */
+.vehicle__charge-track { fill: rgba(var(--v-theme-outline-medium), 0.55); }
+.vehicle__charge-fill { fill: rgb(var(--v-theme-tertiary-bright)); }
+
+/* Low charge changes the BAR as well as its colour — the length is already the
+   signal, and the colour only reinforces it. */
+.vehicle__charge-fill--low { fill: rgb(var(--v-theme-warning)); }
+
+/* A unit on an emergency, glowing under its own tile. The word "Priority task"
+   is already in its status and in its accessible name — this only makes it
+   findable among sixteen markers at wall-display distance. */
+.vehicle__urgent-halo {
+  fill: rgba(var(--v-theme-error), 0.28);
+  stroke: rgb(var(--v-theme-error));
+  stroke-width: 2;
+  animation: route-urgent 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vehicle__heading { transition: none; }
+
+  /* ⚠️ MOTION IS DROPPED, MEANING IS NOT. Every flashing element here also
+     carries a shape, a colour and a description, so holding them at full
+     opacity loses the attention-grab and none of the information. Removing the
+     marks entirely would lose an emergency's position, which is the one thing
+     an operator with vestibular sensitivity needs just as much as anyone. */
+  .route--urgent,
+  .vehicle__urgent-halo,
+  .emergency__pulse {
+    animation: none;
+  }
+
+  .emergency__pulse { opacity: 0.35; }
+}
+
 /* Selecting a vehicle is signalled by the ROUTE, not by the marker: the mission
    legs light up and every other path stays quiet, which is a far bigger change
    than any ring on a 28-unit tile could be. So the marker carries no selected
@@ -527,16 +966,82 @@
   opacity: 0;
 }
 
-/* State rides the tile's edge so it never competes with the white body. */
-.vehicle--charging .vehicle__tile { stroke: rgb(var(--v-theme-info)); stroke-width: 2; }
-.vehicle--loading .vehicle__tile { stroke: rgb(var(--v-theme-secondary)); stroke-width: 2; }
-.vehicle--blocked .vehicle__tile { stroke: rgb(var(--v-theme-error)); stroke-width: 2; }
+/* State rides the tile's edge so it never competes with the white body. Only the
+   states an operator has to notice are marked; a unit simply driving its route
+   needs no ring, and giving every state one would flatten the ones that matter.
+   The word is always in the marker's accessible name — the ring never carries
+   the meaning on its own. */
+.vehicle--charging .vehicle__tile { stroke: rgb(var(--v-theme-tertiary-bright)); stroke-width: 2; }
+.vehicle--waiting .vehicle__tile { stroke: rgb(var(--v-theme-warning)); stroke-width: 2; }
+.vehicle--error .vehicle__tile { stroke: rgb(var(--v-theme-error)); stroke-width: 2.5; }
+.vehicle--delivering .vehicle__tile { stroke: rgb(var(--v-theme-secondary-deep)); stroke-width: 2; }
+.vehicle--idle .vehicle__tile { fill: rgb(var(--v-theme-on-surface-variant)); }
+/* The dock pair reports its own five states, and two of them are the same thing
+   an operator is being told by the two rules above — a unit carrying a load, and
+   a unit stopped with nothing to do. They share those marks rather than adding
+   new ones: a posting is not a severity, and giving it its own colour would say
+   the opposite. The other three dock states are ordinary driving and, like every
+   other driving state, carry no ring at all. */
+.vehicle--transportingCargo .vehicle__tile { stroke: rgb(var(--v-theme-secondary-deep)); stroke-width: 2; }
+.vehicle--waitingForNextTask .vehicle__tile { fill: rgb(var(--v-theme-on-surface-variant)); }
 
 .vehicle:focus-visible { outline: none; }
 
 .vehicle:focus-visible .vehicle__ring {
   opacity: 1;
   stroke: rgb(var(--v-theme-on-surface));
+  stroke-width: 2.5;
+}
+
+/* ── ASRS stacker cranes ── */
+
+/* The rail the machine is welded to. Dashed and quiet: it is the extent of a
+   travel, not a route anything is driven along. */
+.crane__rail {
+  stroke: rgb(var(--v-theme-info));
+  stroke-width: 1.25;
+  stroke-dasharray: 5 4;
+  opacity: 0.5;
+}
+
+.crane__deck {
+  fill: rgb(var(--v-theme-background));
+  stroke: rgb(var(--v-theme-info));
+  stroke-width: 1.25;
+  opacity: 0.9;
+}
+
+.crane__body {
+  fill: rgb(var(--v-theme-background));
+  stroke: rgb(var(--v-theme-info));
+  stroke-width: 1.5;
+}
+
+/* The carriage. Solid against the hollow chassis so its position reads
+   instantly, and it moves — motion is what makes a vertical machine legible
+   from above. */
+.crane__carriage {
+  fill: rgb(var(--v-theme-info));
+  opacity: 0.9;
+}
+
+/* A load in transit, distinct from the machine carrying it. */
+.crane__cargo {
+  fill: rgb(var(--v-theme-tertiary-bright));
+  stroke: rgb(var(--v-theme-background));
+  stroke-width: 0.75;
+}
+
+/* Working is a ring AROUND the unit — a change in shape, readable at distance
+   and independent of the fill. */
+.crane__halo {
+  fill: none;
+  stroke: rgb(var(--v-theme-secondary));
+  stroke-width: 2;
+  opacity: 0.85;
+}
+
+.crane--working .crane__body {
   stroke-width: 2.5;
 }
 

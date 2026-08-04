@@ -30,3 +30,8 @@ pnpm-debug.log*
 
 # Vite / build caches
 .vite/
+
+# 3D assets — ~380 MB of GLBs, served from public/ and copied verbatim into
+# dist/. Far too large for git; keep them out of history and distribute them
+# alongside the repo. See CLAUDE.md → "Models are sized in METRES".
+public/models/

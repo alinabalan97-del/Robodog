@@ -174,6 +174,17 @@ export type ShellVertex = [number, number] | [number, number, number]
 
 export interface FloorMap {
   /**
+   * The warehouse GLB the 3D view renders. Lives here rather than in the viewer
+   * because it is map DATA — the same hall, a second representation — and both
+   * views resolve from this one record.
+   *
+   * ⚠️ Served from `public/`, so it is copied verbatim into `dist/` and never
+   * bundled or hashed. At ~132 MB that is a slow first paint and a heavy deploy;
+   * a Draco/meshopt-compressed re-export would cut it by an order of magnitude
+   * and needs no code change beyond registering the decoder.
+   */
+  modelUrl: string
+  /**
    * SVG user-space box every coordinate above is expressed in.
    *
    * It carries an origin, not just a size, so the box can be cropped tight to
@@ -277,6 +288,9 @@ export interface FloorOpsData {
 // ─── The synthetic snapshot ───────────────────────────────────────────────────
 
 import vehicleOtT12 from '@/assets/vehicle-ot-t12.png'
+// The building itself, measured off the GLB rather than drawn. Type-only in the
+// other direction, so this is not a runtime cycle.
+import { warehouseShell, warehouseZones } from './warehouseStructure'
 
 const MENLO_F4: SiteFloor = { id: 'mp-4', site: 'Menlo Park Headquaters, Zone 1', floor: 'Floor 4' }
 
@@ -304,98 +318,61 @@ export const floorOps: FloorOpsData = {
   feed: { status: 'live', ageSeconds: 2, staleAfterSeconds: 15 },
 
   map: {
-    // Coordinates match the reference plan 1:1, so every number below can be
-    // checked straight against it. Not pixels — the component scales the box.
-    // The box itself is cropped to the wall plus a hair of margin.
-    viewBox: { x: 14, y: 70, width: 1212, height: 760 },
+    // The space in the filename has to be percent-encoded — it is fetched as a
+    // URL, not read from disk.
+    modelUrl: '/models/ImageToStl.com_warehouse6%20(2).glb',
 
-    // Outer wall, clockwise from the top-left corner. Steps OUT for the four
-    // dock aprons (top and bottom) and IN for the two side doors, which is why
-    // this is a point list and not a rect. Third number = that corner's fillet.
-    outline: [
-      [27, 97, 30],
-      [272, 97, 8], [272, 85, 8], [308, 85, 8], [308, 97, 8],
-      [912, 97, 8], [912, 85, 8], [948, 85, 8], [948, 97, 8],
-      [1213, 97, 30],
-      [1213, 422, 10], [1186, 422, 10], [1186, 468, 10], [1213, 468, 10],
-      [1213, 800, 30],
-      [948, 800, 8], [948, 812, 8], [912, 812, 8], [912, 800, 8],
-      [308, 800, 8], [308, 812, 8], [272, 812, 8], [272, 800, 8],
-      [27, 800, 30],
-      [27, 462, 10], [54, 462, 10], [54, 428, 10], [27, 428, 10],
-    ],
+    // ⚠️ THE BOX IS THE BUILDING, and it is load-bearing in a way a crop normally
+    // is not. `warehouse/floorProjection.ts` fits this box onto the model's
+    // interior in order to place robots in 3D, so its CENTRE decides where plan
+    // (0,0) lands and its proportions decide the scale. It is sized so both axes
+    // bind at once — the plan covers the whole interior with nothing left over —
+    // and centred on x 620 / y 450, which is what every station coordinate in
+    // `src/data/fleet.ts` was measured against. Move it and the racking, the
+    // aisles and the fleet all slide off the building together.
+    //
+    // It was 1212 wide, which cropped about 150 units of the building's length
+    // out of the 2D view. Not pixels — the component scales the box.
+    viewBox: { x: -67, y: 70, width: 1374, height: 760 },
 
-    zones: [
-      // ── Production bank, upper row ────────────────────────────────────────
-      // Four aisles on a 170-unit pitch. Each is [cell] [rack] [dock]; the first
-      // is the odd one out — an empty reserve sliver instead of a work cell.
-      { id: 'z-a0', kind: 'reserve', x: 88, y: 228, w: 26, h: 118 },
-      { id: 'z-a1', kind: 'rack', x: 115, y: 187, w: 100, h: 160, bays: 16 },
-      { id: 'z-a1d', kind: 'buffer', x: 218, y: 232, w: 6, h: 116 },
+    // The interior wall line, MEASURED off the warehouse model rather than drawn.
+    // The old outline stepped out for dock aprons down both long walls; the
+    // building has no such aprons — those walls are racking end to end — so the
+    // steps were describing a warehouse that does not exist. The bays are at the
+    // two ends now, which is where the model actually has clear floor.
+    outline: warehouseShell,
 
-      { id: 'z-a2c', kind: 'cell', x: 255, y: 187, w: 30, h: 160 },
-      { id: 'z-a2', kind: 'rack', x: 285, y: 187, w: 100, h: 160, bays: 16 },
-      { id: 'z-a2d', kind: 'dock', x: 390, y: 187, w: 24, h: 160 },
+    // ⚠️ GENERATED. Every rectangle is real mass, read off the warehouse GLB by
+    // `scripts/extract-plan-structure.mjs` and projected through exactly the
+    // transform the 3D view uses. These were hand-drawn before — a plausible
+    // arrangement that owed nothing to the model — and the two had drifted so
+    // far apart that the drawn racking sat where the building has aisles, which
+    // is why a robot on a real aisle appeared to be driving through a rack.
+    //
+    // The 2D map is now a projection of the same geometry the 3D view renders,
+    // not a second opinion about it. Re-run the script when the model changes.
+    zones: warehouseZones,
 
-      { id: 'z-a3c', kind: 'cell', x: 425, y: 187, w: 30, h: 160 },
-      { id: 'z-a3', kind: 'rack', x: 455, y: 187, w: 100, h: 160, bays: 16 },
-      { id: 'z-a3d', kind: 'dock', x: 560, y: 187, w: 24, h: 160 },
-
-      { id: 'z-a4c', kind: 'cell', x: 600, y: 187, w: 26, h: 160 },
-      { id: 'z-a4', kind: 'rack', x: 626, y: 187, w: 110, h: 160, bays: 17 },
-      { id: 'z-a4d', kind: 'dock', x: 738, y: 187, w: 24, h: 160 },
-
-      // ── Production bank, lower row ────────────────────────────────────────
-      { id: 'z-b0', kind: 'reserve', x: 88, y: 550, w: 26, h: 122 },
-      { id: 'z-b1', kind: 'rack', x: 115, y: 510, w: 100, h: 182, bays: 18 },
-      { id: 'z-b1d', kind: 'dock', x: 228, y: 548, w: 24, h: 128 },
-
-      { id: 'z-b2c', kind: 'cell', x: 255, y: 510, w: 30, h: 182 },
-      { id: 'z-b2', kind: 'rack', x: 285, y: 510, w: 100, h: 182, bays: 18 },
-      { id: 'z-b2d', kind: 'dock', x: 390, y: 510, w: 24, h: 182 },
-
-      { id: 'z-b3c', kind: 'cell', x: 425, y: 510, w: 30, h: 182 },
-      { id: 'z-b3', kind: 'rack', x: 455, y: 510, w: 100, h: 182, bays: 18 },
-      { id: 'z-b3d', kind: 'dock', x: 560, y: 510, w: 24, h: 182 },
-
-      { id: 'z-b4c', kind: 'cell', x: 600, y: 510, w: 26, h: 182 },
-      { id: 'z-b4', kind: 'rack', x: 626, y: 510, w: 110, h: 182, bays: 18 },
-      { id: 'z-b4d', kind: 'dock', x: 738, y: 510, w: 24, h: 182 },
-
-      // ── High-bay block, right side. Uprights, not beams — hence `column`. ──
-      { id: 'z-c1', kind: 'rack', x: 850, y: 185, w: 90, h: 84, bays: 9, axis: 'column' },
-      { id: 'z-c2', kind: 'rack', x: 965, y: 185, w: 90, h: 84, bays: 9, axis: 'column' },
-      { id: 'z-c3', kind: 'rack', x: 850, y: 300, w: 90, h: 82, bays: 9, axis: 'column' },
-      { id: 'z-c4', kind: 'rack', x: 965, y: 300, w: 90, h: 82, bays: 9, axis: 'column' },
-      { id: 'z-d1', kind: 'rack', x: 850, y: 508, w: 90, h: 84, bays: 9, axis: 'column' },
-      { id: 'z-d2', kind: 'rack', x: 850, y: 622, w: 90, h: 80, bays: 9, axis: 'column' },
-    ],
-
-    nodes: [
-      { id: 'chg-1', kind: 'charger', x: 717, y: 152, label: 'Charger C-1' },
-      { id: 'chg-2', kind: 'charger', x: 110, y: 445, label: 'Charger C-2' },
-      { id: 'chg-3', kind: 'charger', x: 1144, y: 511, label: 'Charger C-3' },
-      { id: 'lift-1', kind: 'lift', x: 1143, y: 220, label: 'Lift L-1' },
-      { id: 'lift-2', kind: 'lift', x: 956, y: 589, label: 'Lift L-2' },
-
-      { id: 'stn-1', kind: 'station', x: 247, y: 241, label: 'Pick station P-1' },
-      { id: 'stn-2', kind: 'station', x: 430, y: 268, label: 'Pick station P-2' },
-      { id: 'stn-3', kind: 'station', x: 798, y: 262, label: 'Pick station P-3', alert: true },
-      { id: 'stn-4', kind: 'station', x: 248, y: 605, label: 'Pick station P-4', alert: true },
-      { id: 'stn-5', kind: 'station', x: 594, y: 594, label: 'Handover H-1' },
-      { id: 'stn-6', kind: 'station', x: 798, y: 603, label: 'Handover H-2' },
-
-      { id: 'plt-1', kind: 'pallet', x: 766, y: 152, label: 'Pallet stack 96', tag: '96' },
-      { id: 'plt-2', kind: 'pallet', x: 802, y: 152, label: 'Pallet stack 234', tag: '234' },
-      { id: 'plt-3', kind: 'pallet', x: 594, y: 318, label: 'Pallet stack 59', tag: '59' },
-      { id: 'plt-4', kind: 'pallet', x: 798, y: 341, label: 'Pallet stack 98', tag: '98' },
-      { id: 'plt-5', kind: 'pallet', x: 430, y: 364, label: 'Pallet stack 234', tag: '234' },
-      { id: 'plt-6', kind: 'pallet', x: 247, y: 374, label: 'Pallet stack 94', tag: '94' },
-      { id: 'plt-7', kind: 'pallet', x: 594, y: 510, label: 'Pallet stack 78', tag: '78' },
-
-      { id: 'slt-1', kind: 'slot', x: 76, y: 375, label: 'Floor position 198 — empty', tag: '198' },
-      { id: 'slt-2', kind: 'slot', x: 76, y: 417, label: 'Floor position 209 — empty', tag: '209' },
-    ],
+    /**
+     * ⚠️ EMPTY, AND THAT IS THE CORRECT VALUE — not an omission.
+     *
+     * This list used to hold chargers, lifts, pick stations, pallet stacks and
+     * floor positions at hand-picked coordinates. Every one of those is now
+     * OWNED BY THE SIMULATION and published as telemetry: chargers report which
+     * unit is on them, the ASRS lifts report their carriage height, workstations
+     * and loading bays are stations dispatch reserves. The map renders those from
+     * the live frame (`stops`, `equipment`, `chargers`), so anything left here
+     * would be a second, frozen copy of the same equipment — two chargers drawn
+     * for one stall, one of them permanently lying about its state.
+     *
+     * The coordinates were also from the old hand-drawn plan, so after the
+     * geometry was re-measured they no longer landed on anything.
+     *
+     * The kind stays in the contract and the map still renders it: this is where
+     * genuinely static scenery goes if a backend ever supplies some — things the
+     * simulation does not model and would therefore never publish.
+     */
+    nodes: [],
 
     vehicles: [
       // OT-T12 is the unit the mission rail is showing — it owns the highlighted route.
