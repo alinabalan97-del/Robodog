@@ -74,11 +74,34 @@ const bucketOf = state => {
   return 'other'
 }
 
-/** Which corridor a lane node sits on, so travel can be attributed to an aisle. */
-function corridorOf (node) {
+/**
+ * Which corridor a unit is DRIVING ALONG, from the lane block it holds.
+ *
+ * ⚠️ BY SEGMENT, NOT BY NEAREST NODE, and the difference is the whole
+ * measurement. Attributing a unit to its closest lane node reported every
+ * cross-over at 0.0 % — not because nothing crossed, but because a cross-over
+ * here is a SINGLE segment whose only nodes are the junctions it shares with the
+ * horizontals. Every sample therefore landed on a node that belongs to both, and
+ * the first match won, which was always the horizontal. A segment names its two
+ * endpoints, so its axis is unambiguous.
+ *
+ * `unit.segment` is the traffic controller's key, "seg:x:y|x:y".
+ */
+function corridorOfSegment (key) {
+  if (typeof key !== 'string') return null
+  const ends = key.replace(/^seg:/, '').split('|')
+  if (ends.length !== 2) return null
+  const [ax, ay] = ends[0].split(':').map(Number)
+  const [bx, by] = ends[1].split(':').map(Number)
+  if (![ax, ay, bx, by].every(Number.isFinite)) return null
+  const horizontal = Math.abs(ay - by) < 1
+  const lo = horizontal ? Math.min(ax, bx) : Math.min(ay, by)
+  const hi = horizontal ? Math.max(ax, bx) : Math.max(ay, by)
+  const at = horizontal ? ay : ax
   for (const c of corridors) {
-    if (c.axis === 'h' && Math.abs(node.y - c.at) < 1 && node.x >= c.from - 1 && node.x <= c.to + 1) return c.id
-    if (c.axis === 'v' && Math.abs(node.x - c.at) < 1 && node.y >= c.from - 1 && node.y <= c.to + 1) return c.id
+    if ((c.axis === 'h') !== horizontal) continue
+    if (Math.abs(at - c.at) > 1) continue
+    if (lo >= c.from - 1 && hi <= c.to + 1) return c.id
   }
   return null
 }
@@ -106,7 +129,7 @@ for (const seed of seeds) {
   const laneNodes = []
   for (const [id, node] of sim.graph.nodes) {
     if (sim.graph.spurNodes.has(id)) continue
-    laneNodes.push({ id, x: node.x, y: node.y, corridor: corridorOf(node) })
+    laneNodes.push({ id, x: node.x, y: node.y })
   }
   const blocks = sim.graph.nodes.size
 
@@ -148,11 +171,13 @@ for (const seed of seeds) {
         if (gap < bestGap) { bestGap = gap; best = node }
       }
       if (!best || bestGap > 90) continue
-      if (moving) {
-        if (best.corridor) laneUse.set(best.corridor, (laneUse.get(best.corridor) ?? 0) + 1)
-      } else if (bucket === 'waiting') {
-        hotspots.set(best.id, (hotspots.get(best.id) ?? 0) + 1)
-      }
+      if (!moving && bucket === 'waiting') hotspots.set(best.id, (hotspots.get(best.id) ?? 0) + 1)
+    }
+
+    for (const unit of sim.units) {
+      if (unit.speed <= 0.05) continue
+      const id = corridorOfSegment(unit.segment)
+      if (id) laneUse.set(id, (laneUse.get(id) ?? 0) + 1)
     }
 
     occupancyTotal += onLane / Math.max(1, blocks)
