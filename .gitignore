@@ -31,7 +31,15 @@ pnpm-debug.log*
 # Vite / build caches
 .vite/
 
-# 3D assets — ~380 MB of GLBs, served from public/ and copied verbatim into
-# dist/. Far too large for git; keep them out of history and distribute them
-# alongside the repo. See CLAUDE.md → "Models are sized in METRES".
-public/models/
+# 3D assets, served from public/ and copied verbatim into dist/. Track only the
+# five files the app actually references (all now under GitHub's 100MB hard
+# limit after the warehouse model was recompressed) — anything else dropped
+# into this folder (leftover exports, WIP assets) stays untracked, so a stray
+# multi-hundred-MB export can't get committed by accident. See CLAUDE.md →
+# "Models are sized in METRES".
+public/models/*
+!public/models/ImageToStl.com_warehouse6 (2).glb
+!public/models/industrial robot controller 3d model.glb
+!public/models/amazon model.glb
+!public/models/robot 1.glb
+!public/models/white shipping box 3d model.glb
