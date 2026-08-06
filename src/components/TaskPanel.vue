@@ -78,6 +78,17 @@
     (filter.value === 'all' ? props.tasks : props.tasks.filter(t => t.priority === filter.value)),
   )
 
+  /**
+   * The feed, newest first.
+   *
+   * A computed rather than `[...events].reverse()` in the `v-for`. That
+   * expression allocated two arrays every time the panel re-rendered — which is
+   * every frame, because the store republishes the feed on each tick — and it
+   * re-ran for each of the other bindings' re-renders too. Reversing is a view
+   * decision, so it stays here; the array the store publishes is left alone.
+   */
+  const newestFirst = computed(() => [...props.events].reverse())
+
   const filterOptions = computed(() => [
     { id: 'all' as const, label: 'All', count: props.tasks.length, tone: undefined },
     ...taskPriorityOrder.map(id => ({
@@ -406,7 +417,7 @@
 
         <ul class="task-panel__list">
           <li
-            v-for="event in [...events].reverse()"
+            v-for="event in newestFirst"
             :key="event.id"
             class="event-row d-flex ga-2"
           >

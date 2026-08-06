@@ -9,6 +9,16 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+
+    // Dead code fails the BUILD, not just the editor. These were off, so an
+    // unused import, a write-only private field or an argument nobody reads was
+    // a grey squiggle in one person's IDE and invisible to `pnpm build` — which
+    // is how a routing helper, a second completion counter and two cached
+    // traffic-refusal fields survived in `fleetSim.ts` long after their callers
+    // were deleted. Underscore-prefixed names remain exempt, which is the escape
+    // hatch for a signature that must keep a parameter it does not use.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   }
 }

@@ -160,7 +160,12 @@ export class TrafficLayer {
   readonly group = new Group()
 
   private readonly projection: FloorProjection
-  private palette: TrafficPalette
+
+  // ⚠️ THE PALETTE IS NOT RETAINED, and that is correct rather than an
+  // oversight. Both the constructor and `setPalette` push the colours straight
+  // into the shared materials, so the materials ARE the stored palette — a
+  // field beside them was written twice and read never, which is a second copy
+  // of state that can only ever disagree with the first.
 
   private readonly segmentGroup = new Group()
   private readonly junctionGroup = new Group()
@@ -197,7 +202,6 @@ export class TrafficLayer {
 
   constructor (parent: Object3D, projection: FloorProjection, palette: TrafficPalette) {
     this.projection = projection
-    this.palette = palette
     this.group.name = 'traffic'
 
     const metre = projection.worldPerMetre
@@ -243,7 +247,6 @@ export class TrafficLayer {
 
   /** Repaint on a theme change. Geometry is untouched — this is paint only. */
   setPalette (palette: TrafficPalette): void {
-    this.palette = palette
     for (const [key, color] of Object.entries(palette)) {
       this.materials[key]?.color.set(color)
     }

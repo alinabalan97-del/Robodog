@@ -172,7 +172,7 @@ the fleet's animation-frame clock, and composes:
 - `src/components/FloorMap.vue` — the 2D SVG floor plan
 - `src/components/warehouse/WarehouseViewer.vue` — the 3D scene (GLB warehouse + robot GLBs),
   lazily imported so Three.js is its own chunk
-- `src/components/FleetPanel.vue` — the 16-robot roster, sharing the 350px rail with
+- `src/components/FleetPanel.vue` — the five-unit roster, sharing the 350px rail with
   `src/components/TaskPanel.vue` (the priority queue, the performance metrics and the
   notification feed) and `src/components/MissionPanel.vue`, behind a segmented switch
 
@@ -185,6 +185,22 @@ marks, drawn from `FleetSim.trafficTelemetry()`. It is **off by default**: it is
 left on it buries the floor it explains. The 2D map has no equivalent, so the control is hidden
 rather than disabled in 2D — a button that silently does nothing in one of two views is worse than
 one that is not offered.
+
+⚠️ **The ledger is only published while something is drawing it.** `FleetSim.trafficTelemetry()`
+walks every held block and every junction and sorts both lists, and it was being rebuilt and
+assigned into reactive state on **every animation frame** — waking every watcher of `fleet.traffic`
+60×/s so a hidden layer could ignore the result. `FloorOps` now declares the demand
+(`fleet.setTrafficWanted(mapView === '3d' && showTraffic)`) and the store skips the snapshot while
+nothing wants it, leaving `traffic` null — which both renderers already treat as *no answer yet*
+rather than as *nothing is reserved*. A second consumer turns that flag into a count and changes
+nothing else.
+
+⚠️ **The zoom buttons drive BOTH views.** They used to narrow `FloorMap`'s viewBox and nothing
+else, so in 3D they were offered and did nothing — the very failure the traffic toggle is hidden in
+2D to avoid. `zoom` is now a shared level: the 2D map reads it directly, and `WarehouseViewer`
+dollies the camera by the ratio between the old level and the new (`WarehouseScene.zoomBy`, clamped
+to the orbit controls' own distance limits). OrbitControls' wheel zoom covers a mouse; it does not
+cover a gloved hand on a ruggedized tablet, which is the floor this runs on.
 
 ⚠️ **A FLOOR DECAL'S LIFT IS A MULTIPLE OF `unitScale`, NEVER A DISTANCE IN METRES.**
 `FloorProjection.worldPerMetre` is **1** (the warehouse GLB is authored in metres), so a "4 mm"
@@ -297,6 +313,20 @@ already spoken for. Measured over 45 minutes the governor's target moves between
 not sitting on a constant. More capacity means more ways ACROSS the hall, not
 more aisle — and until then the roster must SAY why a dozen units are parked
 (`FleetPanel`'s "held back" chip, and `activityOf`'s wording for a standby unit).
+
+⚠️ **The warm-up REBASES the stored instants; it does not merely zero the clock.**
+`FleetSim` runs 180 simulated seconds before the first frame so the hall looks like a shift in
+progress, then sets `elapsed = 0`. But `elapsed` is the origin every absolute time is measured
+against, so zeroing it alone left `createdAt` / `assignedAt` in the old base and two things were
+quietly wrong for as long as the warm-up lasted: a job carried over completed with
+`elapsed - createdAt` **negative** — clamped to zero, so the opening minutes of every run booked
+**0-second deliveries** into `averageDeliverySeconds`, `averageQueueSeconds` and the emergency
+response average — and `waitingSeconds` read 0 for work that had genuinely been queued for minutes.
+`warmUp` now shifts every stored instant by the same offset, which keeps durations exact and simply
+makes pre-shift instants negative. The event feed is **emptied** rather than shifted: `TaskPanel`
+labels those times "simulated minutes since the run started", so a warm-up event has no correct
+rendering — left alone it timestamped up to `03:00` against a clock reading `00:00`. Expect
+`avg delivery` to read a few seconds HIGHER than pre-fix numbers; that is the false zeros leaving.
 
 ⚠️ **Per-seed task counts are chaotic; judge changes on a spread, not a seed.** A
 two-unit behaviour change re-orders every rng draw and every traffic interaction
@@ -433,9 +463,36 @@ Every aisle, rack face and rack block traces back to the warehouse model, not to
 anyone's idea of a plausible floor plan. The chain is:
 
 ```bash
-node scripts/extract-warehouse-nav.mjs        # GLB → occupancy + clearance grid
-node scripts/extract-plan-structure.mjs       # grid → the 2D map's racking + shell
+node scripts/extract-warehouse-nav.mjs        # GLB → clearance grid   (0.25–1.90 m · ROUTING)
+node scripts/extract-plan-structure.mjs       # grid → runs, aisles, crossings  (POLICY)
+node scripts/extract-plan-objects.mjs         # GLB → every object     (0.06–3.30 m · DRAWING)
+node scripts/verify-schematic.mjs             # does the drawing match the objects?
+node scripts/audit-plan-coverage.mjs          # does it match the MODEL? (writes .audit/*.png)
 ```
+
+⚠️ **THE NAV GRID IS NOT A FLOOR PLAN, AND THE 2D MAP MUST NOT BE DRAWN FROM
+ONE.** `extract-warehouse-nav.mjs` keeps only geometry between **0.25 m and
+1.90 m** — the band a ground robot strikes. That is exactly right for routing and
+wrong for drawing, and the 2D map was built on it. Measured against the model,
+**22 % of the building's mass was missing** from the map and none of it looked
+missing:
+
+- the **east rack** — 4.6 m of structure whose lowest member is above 1.9 m, the
+  largest object in the hall after the four runs, drawn as nothing at all
+- **every pallet standing on the floor**, all of them under 0.25 m
+- the top few units of **every rack run**, clipped by the band's ceiling
+
+`extract-plan-objects.mjs` rasterises the full interior height instead and emits
+`src/data/warehouseObjects.ts`. **Routing still uses the nav grid and must keep
+using it** — corridors, station coordinates and the plan scale are all measured
+against it. Nothing in the object list feeds the simulation.
+
+`audit-plan-coverage.mjs` is the check that catches this class of bug: it goes
+back to the GLB, rasterises it, and reports what fraction of real mass the
+drawing covers (currently **96.8 %**) plus how much drawn area stands on empty
+floor (**9.9 %** — a schematic simplifies, so this is never zero). It writes two
+PNGs to `.audit/`, and the pictures are the point: a percentage says how bad it
+is, the images say where.
 
 `extract-warehouse-nav.mjs` rasterises everything standing between 0.25 m and
 1.9 m — the band a ground robot strikes — and distance-transforms the free cells.
@@ -450,6 +507,38 @@ building.** The old plan put racking where the hall has aisles, so a robot drivi
 a real aisle was drawn cutting through a rack — and the four rack runs the model
 actually has were represented as two. Nothing looked broken; it just wasn't the
 same building.
+
+⚠️ **The extractor emits MASS, not objects, and the 2D map must group it before
+drawing.** One physical rack run comes out as four or five overlapping
+rectangles — a shelf, the beam over it and the pallets on it are three rasterised
+bands covering the same floor. `src/data/floorSchematic.ts` is the layer that
+turns that into a drawing: it clusters the rectangles into addressed storage runs
+(`STORAGE-01…`), separates plant and floor goods by height, letters the corridors
+`A`/`B`, and derives the marked floor pads and the spurs. `FloorMap.vue` draws
+the result and computes no layout of its own.
+
+⚠️ **A GROUP IS DRAWN AS ITS PARTS, NEVER AS ITS BOUNDING BOX.** The run against
+the west wall is a 26-unit-deep strip of racking with two 60-unit-deep bays
+bulging off it; drawn as its bounding box it became 86 units deep and covered the
+open floor between the bays — racking drawn where the hall has aisles, which is
+the same failure the measured pipeline exists to prevent. `Grouped.parts` is what
+renders; `x/y/w/h` is only the extent, used for the address and reading order.
+`audit-plan-coverage.mjs` measures the resulting over-draw so a regression here
+shows up as a number rather than as a plausible-looking picture.
+
+⚠️ **A merged cluster's capacity comes from the FOOTPRINT over the bay pitch,
+never from summing `bays`.** `bays` is per-rectangle, so adding it across
+overlapping rectangles counts the same run two or three times: the top-right run
+reported 19 positions against the 11 of the identically-sized run beside it, and
+drew a two-row grid of half-height cells in racking that is one pallet deep.
+Dividing the merged footprint by the extractor's own 1.3 m pitch counts each
+position once — and makes every cell on the plan the same physical size, so two
+cells genuinely mean two pallets.
+
+`verify-schematic.mjs` asserts the grouping against the measured zones (nothing
+dropped, no cell outside its container, every station drawn exactly once) and
+prints the layout in metres for eyeball comparison against the 3D view. Run it
+after re-extracting, and after touching any threshold in `floorSchematic.ts`.
 
 Three consequences worth knowing before you move anything:
 
@@ -537,6 +626,35 @@ forklift and AGV were authored with their long axis on X, so both carry a
 quarter turn. Whether it should be +90° or −90° — which end is the *front* —
 cannot be read off a bounding box. Getting it wrong shows as a robot driving
 backwards, not sideways.
+
+⚠️ **AND `yawOffset` MEANS THE ROOT'S LOCAL AXES ARE NOT THE SCENE'S.** Anything
+parented to a robot root and positioned by a *direction* has to undo it. Cargo
+did not: `setCargo` placed the load along the root's −Z because "the scene drives
+along −Z", but inside a root carrying a 90° yaw that is **sideways** — the
+forklift's pallet rendered beside the machine, level with the driver. It hid for
+a long time because the two chassis that carry *within* themselves use
+`forwardM: 0`, and a rotated zero is still zero, so only the one chassis that
+carries ahead of itself could ever show it. The carrier now counter-rotates by
+`-yawOffset` and offsets along `(sin yaw, 0, −cos yaw)`, which reduces to the old
+behaviour when the offset is zero.
+
+⚠️ **A BOUNDING BOX CANNOT TELL A FORK FROM A MAST — SLICE BY HEIGHT INSTEAD.**
+`verify-cargo-placement.mjs` profiles each chassis in 0.1 m bands and takes the
+furthest-forward vertex in each, which is what separates load-bearing structure
+from the solid body behind it. On `robot 1.glb` that reads unambiguously: the
+forks are a 0.65 m shelf at **0–0.10 m** reaching `x = +0.695`, while everything
+from **0.10–0.60 m** stops at `x = +0.041`. The bay follows from those two
+numbers rather than from anyone's eye, and the script now also checks the load is
+*supported* — a pallet floating past the fork tips is as wrong as one buried in
+the mast, and a single bounding box scores them identically.
+
+⚠️ **The script no longer restates the bays or the sizes** — it reads `fleet.ts`
+through Vite and parses `CARGO_BAYS` out of `WarehouseViewer.vue`. Its previous
+copy had drifted to a forklift 0.25 m too tall and chassis A pointed at chassis
+B's GLB, so it was verifying a fleet that did not exist. ⚠️ **It also used to
+place cargo along −Z exactly as the shipped code did, so it reproduced the bug
+above and reported it as correct.** A verifier that shares the code's assumption
+cannot falsify it; this one checks against the mesh.
 
 ⚠️ **A model's PIVOT is measured too, never assumed.** Both 3D layers stand a
 machine up by putting its root origin on the floor plane, which only stands it on
@@ -630,6 +748,103 @@ actually flowing. Their POSITIONS are still placeholders — nothing in the GLB
 identifies a charger — and are replaced by editing `chargerStations` in
 `src/data/fleet.ts`, with no change here. Anything else structural is still
 forbidden; see the deleted `ZoneLayer`.
+
+### ⚠️ The house style: dark machines with glowing edges, metal building
+
+**The fleet reads as holographic without any of the machine being holographic, and without anything
+being drawn around it** (`FINISH` in `warehouse/robotLivery.ts`). Two parts, both of them surface
+properties of the chassis itself:
+
+| Part | What it is | Why it is that and not something else |
+|---|---|---|
+| **Hull + trim** | solid, opaque, matte, emitting **nothing** head-on (`bodyEmissive: 0`), plus a Fresnel rim spliced into the material's emissive (`rimStrength` 0.22, `rimPower` 1.8) | the body stays dark and keeps taking the hall's light, AO and its own contact shadow; the rim pays out only where the surface turns edge-on, tracing every upright, mast, wheel arch and fork |
+| **Lit details** | the parts the GLBs already authored in saturated colour — lamps, indicator strips, light bars — carrying a small emissive (`ledEmissive` 0.28, in each unit's own accent) | the accent bucket *is* the lit-detail bucket, so no per-model annotation and no guessing which face is a lamp |
+
+⚠️ **NOTHING IS DRAWN AROUND A ROBOT. No ground aura, no halo shell, no floor disc, no ring, no
+projected light.** One was built here and **removed**: an additive ellipsoid around each chassis,
+intended as soft light in the air. From the angle this view is actually watched from it did not read
+as atmosphere — it read as **a circle on the ground under each robot**, which on an operations
+display is the vocabulary of a selection ring or a safety radius. This floor draws real ones of
+those (`trafficLayer.ts` — safety rings, destination marks), so a decorative one is not merely
+redundant, it is a false reading of the floor. Do not reintroduce a shell, sprite, decal or light to
+"soften" the rim; soften it with `rimPower`, which widens the band without raising the peak.
+
+⚠️ **THE TWO RIM KNOBS TRADE AGAINST EACH OTHER — TUNE THEM AS A PAIR.** The flank's brightness is
+`rimStrength × pow(1 − facing, rimPower)`, so the old "below ~2 the rim stops being a rim" limit was
+a statement about `rimStrength: 0.6`, not about `rimPower` alone. At 0.22/1.8 the band is much wider
+*and* the half-turned flank is nearly half as bright as it was at 0.6/2.4 — the hull gets darker and
+the gradient gets gentler together. The failure that note describes is real but specific: widening
+the band while leaving the strength high.
+
+⚠️ **NOTHING IS BOLTED ONTO A CHASSIS ANY MORE.** `RobotLayer.addIdentity` is deleted — roof beacon,
+mast band and the per-unit deck marking. The marking was a flat decal whose *shape* differed per
+unit, and a violet chevron lying across a machine reads as a **direction arrow**: on an operations
+display that is a claim about where a robot is going which a decal cannot back up. It was also
+positioned from the instance root, which the forklift authors at its **centre** (`baseOffsetY`), so
+on that chassis it floated across the mast rather than lying on the deck. ⚠️ **Identity is therefore
+down to two channels — accent colour on the indicator faces, and the call-sign.** The note on
+`UnitLivery` asks for three so colour is never load-bearing alone; with the shape gone, the
+call-sign is what a colourblind operator has, and it has to stay legible wherever a unit is named.
+⚠️ **`UnitLivery.markings` in `src/data/fleet.ts` now has NO consumer** — not the 3D scene, not the
+2D map. It is declared data nothing reads. Either the 2D map should adopt it (a flat schematic can
+carry a per-unit shape without it being mistaken for a heading, which is exactly what went wrong in
+3D) or the field should go. Leaving it is the one option that quietly rots.
+
+⚠️ **A holographic mode also used to live here and is DELETED, not disabled** — semi-transparent
+hulls with `depthWrite: false` and emission across the whole surface. The objection that killed it
+still stands and the rim answers it rather than dodging it: these are vehicles an operator reads at
+distance to decide where machinery *is*, and a chassis you can see through stops holding its
+silhouette. The rim puts light exactly **on** that silhouette, so the outline is drawn twice — once
+by paint against the hall, once by light along its edge. A projection dissolves its own outline;
+this sharpens it.
+
+⚠️ **The glow is one fleet colour (`robotLivery.glow` → `primary-bright`), and it is neither an
+identity channel nor a state.** Per-unit accents already spend the primary family on telling
+machines apart. Every unit's edges light identically whatever it is doing — the moment the rim moves
+with battery, fault, selection or staleness it becomes status carried by brightness alone, which the
+domain rules forbid. ⚠️ **Trim is rimmed but never emits**, and **the rim is kept off the indicator
+faces** so the fleet's blue doesn't blur the one colour saying *which* forklift this is.
+⚠️ **Nothing structural glows, and that is what makes the fleet's glow mean anything.** Racking and
+shell are explicitly zeroed in `applySurfaces`; the moment the building glows too, the one cue
+separating moving equipment from structure is spent on the structure.
+⚠️ **The glow is on the material precisely BECAUSE it is not bloom.** Bloom selects on brightness
+across the whole frame, so it cannot be aimed: this scene had a bloom pass and deleted it after it
+found the white cargo box and smeared it across every laden forklift. At the subtle levels used
+here, no threshold catches a faint blue rim without also catching a lit white box.
+Restoring bloom means re-tuning its threshold above both of them and above the white cargo box; see
+the note in `warehouseScene.ts`.
+
+**One brand accent for the whole fleet.** `robotLivery.accent` is `primary` for A, B, C *and* the
+ASRS cranes. Chassis type used to be a hue (AGV blue, AMR mint, forklift violet) and is now a
+**shape only** — the three models are already unmistakably different machines, so the hue was
+spending the brand's most recognisable asset on a distinction the silhouette already makes.
+`UNIT_LIVERY[id].accent` therefore changed job: it is no longer the machine's dominant colour but
+its **rim** — the indicator strip, the identity badge and the 2D heading arrow — and all five are now
+drawn from the primary family. ⚠️ **That narrowed one of the three redundant identity channels**
+(colour · marking · call-sign) that the note on `UnitLivery` exists to protect — and the marking
+channel has since been removed outright (see above), so the **call-sign now carries identity on its
+own** for anyone the colour does not reach. Two of the five share a chassis and a GLB.
+
+**The building is clean industrial metal** (`applySurfaces` + `warehouseTextures.ts`). The surface
+replaced a painted-and-weathered steel carrying rust blooms, impact chips and a grime gradient:
+correct for a hall used for twenty years, wrong for the brief. Wear is what dates a surface, so
+there is none — a fine directional grain, the mill's tonal drift, and horizontal section seams.
+
+⚠️ **`metalness: 0.62` AND `scene.environment` ARE ONE CHANGE — never separate them.** A metal
+surface takes almost all its visible colour from what it reflects, so raising metalness without an
+environment renders the racking nearly **black**, which looks like a broken texture rather than a
+wrong material. `addEnvironment()` supplies it with `RoomEnvironment` + `PMREMGenerator` rather
+than an HDRI file, because the project already ships ~380 MB of GLBs and first paint is the known
+bottleneck. Its render target is **not reachable by walking the scene graph**, so `dispose()` frees
+it explicitly or every remount leaks a filtered cube map.
+
+Racking carries `opacity: 0.9` and keeps `depthWrite: true` — it is what robot positions are read
+*against*, so at lower opacity the aisles stop separating from the bays, and a rack that stopped
+writing depth would let every rack behind it sort in front of it.
+
+⚠️ **The two surface tints come from theme tokens now** (`surfaceTints`, resolved by the viewer and
+passed in). They were two hardcoded hexes with a note saying tokens "would be ideal", which made
+the building the one part of the app that could not follow a rebrand.
 
 **The GLBs are repainted into one house livery** by
 `warehouse/robotLivery.ts`: shared body colour, shared dark trim, shared finish,
@@ -730,6 +945,7 @@ added per project.
 | A **screen's dataset** | `src/data/<screen>.ts` | A typed contract + a synthetic data object. See the house rule below. |
 | **Warehouse behaviour** | `src/sim/` | The fleet simulation. Plain TS, no Vue, no Three — see the three-layer rule below. Never put behaviour in a renderer. |
 | **Warehouse layout** | `scripts/extract-*.mjs` → `src/data/warehouse*.ts` | ⚠️ Generated from the GLB, never hand-drawn. Edit the script and re-run it; the `src/data/warehouse*.ts` files are output. |
+| **How the 2D map READS that layout** | `src/data/floorSchematic.ts` | Grouping, addressing and lettering of `warehouseObjects`. Derives; never invents a position. Check with `verify-schematic.mjs`, then `audit-plan-coverage.mjs`. |
 | **API contracts / callers** | `src/api/` | `types.ts` · `client.ts` · `<domain>.ts`. |
 | **Mock endpoints** | `src/mocks/handlers.ts` | Implement the contract; synthetic data only. |
 | **Shared state** | `src/stores/` | Pinia. |

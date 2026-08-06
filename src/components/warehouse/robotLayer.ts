@@ -31,12 +31,10 @@ import {
   BoxGeometry,
   Color,
   ConeGeometry,
-  CylinderGeometry,
   Group,
   Mesh,
   MeshStandardMaterial,
   Object3D,
-  SphereGeometry,
   Vector3,
 } from 'three'
 import type { AnimationClip } from 'three'
@@ -46,7 +44,6 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { disposeObject } from './warehouseScene'
 import { applyLivery } from './robotLivery'
 import type { Livery } from './robotLivery'
-import type { RobotSize } from '@/data/fleet'
 import type { FloorProjection } from './floorProjection'
 
 /**
@@ -105,6 +102,47 @@ export function baseOffsetY (root: Object3D): number {
   return Number.isFinite(minY) ? -minY : 0
 }
 
+/**
+ * ── WHERE A CHASSIS CARRIES ITS LOAD ─────────────────────────────────────────
+ *
+ * ⚠️ AUTHORED PER CHASSIS, NOT DERIVED, AND THE FIRST VERSION OF THIS GOT IT
+ * WRONG BY TRYING TO DERIVE IT. Cargo was placed on the model's bounding-box
+ * TOP, on the reasoning that a robot carries on its deck. That is true of a flat
+ * shuttle and false of every other shape: an open-frame AMR carries INSIDE its
+ * frame, between the side columns, and a forklift carries ahead of itself on
+ * forks. On the open-frame unit the box floated clear above the machine — the
+ * geometry was correct and the anchor was meaningless.
+ *
+ * A bounding box cannot find a loading bay: the bay is a VOID in the model, and
+ * the box that encloses the model says nothing about the holes in it. So these
+ * are measured off the asset by a human once, exactly as `yawOffset` is and for
+ * the same reason (CLAUDE.md → "yawOffset needs a human once").
+ *
+ * All three are METRES, like every physical dimension in this codebase — never
+ * plan units, and never fractions of a bounding box.
+ */
+export interface CargoBay {
+  /**
+   * Height of the bay FLOOR above the ground, in metres — where the box rests.
+   *
+   * Measured to the surface the load actually sits on: the internal platform of
+   * an open frame, the top of a flat deck, the fork blades. Not the top of the
+   * chassis.
+   */
+  liftM: number
+  /** Metres AHEAD of the chassis centre. Zero for a bay the unit carries within. */
+  forwardM: number
+  /**
+   * The load's largest dimension once carried, in metres.
+   *
+   * ⚠️ THIS IS A FIT, NOT A STYLE CHOICE. The box has to clear the columns of
+   * the bay it sits in, so it is sized against the compartment rather than to a
+   * single fleet-wide figure — one size that suits a forklift's forks pushes
+   * straight through the sides of a cart tug's frame.
+   */
+  fitM: number
+}
+
 /** A robot's pose, in floor-plan coordinates. Never world units. */
 export interface RobotPose {
   planX: number
@@ -116,6 +154,8 @@ export interface RobotPose {
 }
 
 export interface RobotSpawnSpec {
+  /** Where this chassis carries its load. See `CargoBay`. */
+  cargoBay?: CargoBay
   /** Matches the vehicle id in the shared dataset, so selection lines up. */
   id: string
   modelUrl: string
@@ -136,22 +176,15 @@ export interface RobotSpawnSpec {
    */
   livery?: Livery
   /**
-   * This unit's OWN identity — accent colour, hull marking and call-sign.
+   * ⚠️ `identity` IS GONE, AND ITS ABSENCE IS DELIBERATE. The layer used to bolt
+   * a per-unit beacon, mast band and deck marking onto each chassis; all three
+   * are removed (see the note in `spawn`). Nothing here reads a unit's accent
+   * any more — the livery paints it onto the indicator faces instead — so a
+   * field carrying one would be plumbing with no consumer, which is exactly the
+   * kind of quiet dead code this file's history is full of.
    *
-   * ⚠️ PER UNIT, NOT PER CHASSIS, and it is what makes a five-robot floor
-   * readable. Two forklifts share one GLB and one house livery; without this
-   * they are the same machine twice and an operator has to read a label to tell
-   * them apart. Omit it and the unit simply wears its chassis paint.
+   * A unit is told apart by its call-sign and by that accent on its lamps.
    */
-  identity?: UnitIdentity
-}
-
-/** The three redundant channels one unit is recognised by. See `UnitLivery`. */
-export interface UnitIdentity {
-  /** Resolved CSS colour — the viewer converts the theme token before calling. */
-  accent: string
-  /** Hull marking. A shape, so identity survives greyscale and bad light. */
-  markings: 'stripe' | 'chevron' | 'dot' | 'band' | 'cross'
 }
 
 interface RobotEntry {
@@ -164,7 +197,21 @@ interface RobotEntry {
    * the floor. See `baseOffsetY`. Zero for a well-authored asset.
    */
   baseOffsetY: number
-  /** Per-instance materials created by the repaint; nothing else will free them. */
+  /** 1 / the root's uniform scale. Cargo is built in world units — see `setCargo`. */
+  inverseScale: number
+  /** This chassis's loading bay, or null to carry nothing. See `CargoBay`. */
+  cargoBay: CargoBay | null
+  /** The box currently on this unit, or null. Parented to `root`, so it just follows. */
+  cargo: Object3D | null
+  /**
+   * Per-instance materials created by the repaint; nothing else will free them.
+   *
+   * ⚠️ THE FLEET'S GLOW LIVES ENTIRELY IN HERE, which is why this layer has no
+   * glow-related field of its own. A robot's light is a Fresnel rim on these
+   * materials plus the indicator faces' own emissive — surface properties of
+   * the chassis, not objects added beside it. Nothing is parented to a robot to
+   * make it glow, and nothing should be.
+   */
   materials: MeshStandardMaterial[]
 }
 
@@ -176,6 +223,20 @@ export class RobotLayer {
   private readonly robots = new Map<string, RobotEntry>()
   /** One fetch per model URL however many instances are spawned from it. */
   private readonly modelCache = new Map<string, Promise<GLTF>>()
+  /** The cargo GLB, once `useCargoModel` has been called. Null means no loads drawn. */
+  private cargoUrl: string | null = null
+  /** Units with a cargo load already in flight — see `setCargo`. */
+  private readonly cargoPending = new Set<string>()
+  /** One diagnostic per session, not per pickup. See the log in `setCargo`. */
+  private cargoReported = false
+  /**
+   * Trace every step of a cargo attach and drop a probe at world origin.
+   *
+   * Off unless the page is opened with `?debugCargo=1` — see the viewer. It is a
+   * URL switch rather than a build flag so it can be turned on against the
+   * running app, which is the only place this failure is observable.
+   */
+  debugCargo = false
   /**
    * The ORIGINALS behind the clones. Clones share their geometry and materials
    * with these, so only the originals may ever be disposed — freeing a clone
@@ -228,6 +289,7 @@ export class RobotLayer {
     // Measured now, while the clone is still unparented and unposed — this is the
     // pivot correction, and it has to be taken before anything moves the model.
     const liftY = baseOffsetY(root)
+    const rootScale = root.scale.x || 1
     // Applied here as well as in `setPose`, so a robot spawned without a pose is
     // never standing in the floor for the frames before its first telemetry tick.
     root.position.y = liftY
@@ -245,9 +307,27 @@ export class RobotLayer {
     // Repaint into the house livery BEFORE the instance is registered, so it is
     // never visible in the model's own colours for a frame.
     const materials = spec.livery ? applyLivery(root, spec.livery) : []
-    // After the livery, so the badge keeps its own accent instead of being
-    // repainted into the shared hull colour along with the rest of the mesh.
-    if (spec.identity && spec.sizeM) this.addIdentity(root, spec.sizeM, spec.identity)
+
+    // ⚠️ NOTHING IS BOLTED ONTO A CHASSIS ANY MORE, AND THAT IS THE WHOLE OF
+    // `addIdentity` GONE — beacon, mast band and now the deck marking too.
+    //
+    // The marking was a flat decal in the unit's own accent whose SHAPE differed
+    // per unit — a chevron, a cross, a stripe. Two things were wrong with it.
+    // A chevron in violet lying across a machine reads as a DIRECTION ARROW on
+    // an operations display: it looks like the thing that says where the robot
+    // is going, which is a claim the plate cannot back up, and an operator
+    // acting on it would be acting on decoration. And it was positioned from the
+    // instance root, which for the forklift is authored at the machine's CENTRE
+    // rather than its base (`baseOffsetY`) — so on that chassis the decal did
+    // not lie on the deck at all, it floated across the middle of the mast.
+    //
+    // ⚠️ IDENTITY NARROWS TO TWO CHANNELS: the unit's accent colour, which the
+    // livery still paints onto its indicator faces, and its call-sign, which the
+    // roster and the 2D map both show. The note on `UnitLivery` in
+    // `src/data/fleet.ts` asks for three redundant channels precisely so that
+    // colour is never load-bearing alone; with the shape channel gone, the
+    // call-sign is what carries identity for a colourblind operator, and it has
+    // to stay legible wherever a unit is named.
 
     const clips = gltf.animations ?? []
     this.robots.set(spec.id, {
@@ -255,6 +335,9 @@ export class RobotLayer {
       clips,
       materials,
       baseOffsetY: liftY,
+      cargoBay: spec.cargoBay ?? null,
+      inverseScale: 1 / rootScale,
+      cargo: null,
       yawOffset: spec.yawOffset ?? 0,
       mixer: clips.length ? new AnimationMixer(root) : null,
     })
@@ -284,6 +367,8 @@ export class RobotLayer {
   spawnMarker (spec: {
     id: string
     sizeM: { lengthM: number; widthM: number; heightM: number }
+    /** Same contract as `RobotSpawnSpec.cargoBay` — a marker carries too. */
+    cargoBay?: CargoBay
     color: string
     pose?: RobotPose
   }): Object3D {
@@ -298,9 +383,13 @@ export class RobotLayer {
       color: tint,
       roughness: 0.55,
       metalness: 0.05,
-      // Self-lit enough to stay readable inside a dim hall shell without needing
-      // the scene's lighting rig tuned around it.
-      emissive: tint.clone().multiplyScalar(0.25),
+      // ⚠️ NO EMISSIVE — AND THIS ONE IS EASY TO OVERLOOK BECAUSE IT NORMALLY
+      // NEVER RENDERS. `spawnMarker` only runs for a chassis with no GLB, or for
+      // one whose GLB FAILED TO LOAD, and the robot models here total ~250 MB —
+      // so a single failed fetch would put a self-lit cone in that unit's
+      // primary-family accent (blue or violet) on the floor, indistinguishable
+      // from the glow effects being hunted. Nothing in this scene emits now,
+      // including the thing that only appears when something has gone wrong.
     })
 
     // TRUE SIZE, from the same `sizeM` contract a real model is scaled to — so a
@@ -333,7 +422,19 @@ export class RobotLayer {
     this.owned.add(root)
     // No pivot correction: this marker is BUILT rather than imported, and its
     // parts are placed above y = 0 on purpose, so its origin already is its base.
-    this.robots.set(spec.id, { root, clips: [], mixer: null, yawOffset: 0, baseOffsetY: 0, materials: [] })
+    // A marker is built at true size and unscaled, so its deck is simply its own
+    // height and its local space is already world space.
+    this.robots.set(spec.id, {
+      root,
+      clips: [],
+      mixer: null,
+      yawOffset: 0,
+      baseOffsetY: 0,
+      cargoBay: spec.cargoBay ?? null,
+      inverseScale: 1,
+      cargo: null,
+      materials: [],
+    })
     this.group.add(root)
 
     if (spec.pose) this.setPose(spec.id, spec.pose)
@@ -388,94 +489,6 @@ export class RobotLayer {
     return this.highlighted
   }
 
-  /**
-   * ── ONE UNIT'S OWN IDENTITY, BOLTED ONTO WHATEVER CHASSIS IT IS ────────────
-   *
-   * Two forklifts share one GLB. Repainting the whole hull per unit would fight
-   * the house livery — the fleet is meant to read as one manufacturer's product
-   * line — so identity is ADDED as parts rather than swapped into the body:
-   *
-   *   BEACON    an emissive dome on the roof, this unit's accent. The one part
-   *             visible from across the hall and from directly above, which is
-   *             the angle the 3D view is actually watched from.
-   *   MARKING   a flat decal on the deck whose SHAPE differs per unit. Colour
-   *             alone fails a colourblind operator and fails in bad light, and
-   *             both of those are binding domain rules — so the shape is the
-   *             channel that survives when the colour does not.
-   *   MAST BAND a ring at hull height, so the unit is identifiable in profile
-   *             when the roof is hidden by racking.
-   *
-   * ⚠️ SIZED IN METRES THROUGH `worldPerMetre`, never through `unitScale`. Plan
-   * units and metres are two different scales here and crossing them is how the
-   * fleet once rendered at a third of its proper size (`floorProjection.ts`).
-   *
-   * ⚠️ ADDED TO THE INSTANCE ROOT, NOT TO THE CACHED SOURCE. The source is shared
-   * by every unit of that chassis; decorating it would give all of them the same
-   * badge. `spawn()` clones first, so `root` here is always per-instance.
-   */
-  private addIdentity (root: Object3D, sizeM: RobotSize, identity: UnitIdentity): void {
-    const metre = this.projection.worldPerMetre
-    const tint = new Color(identity.accent)
-    const badge = new MeshStandardMaterial({
-      color: tint,
-      roughness: 0.4,
-      metalness: 0.1,
-      // Self-lit so it stays readable inside a dim hall without the lighting rig
-      // being tuned around it — the same reasoning the schematic marker uses.
-      emissive: tint.clone().multiplyScalar(0.55),
-    })
-
-    const group = new Group()
-    group.name = 'identity'
-
-    // ── Roof beacon ──────────────────────────────────────────────────────────
-    const beaconR = Math.max(0.045, sizeM.widthM * 0.11) * metre
-    const beacon = new Mesh(new SphereGeometry(beaconR, 12, 8), badge)
-    beacon.position.y = sizeM.heightM * metre + beaconR * 0.35
-    group.add(beacon)
-
-    // ── Profile band ─────────────────────────────────────────────────────────
-    const bandR = Math.max(sizeM.widthM, sizeM.lengthM) * 0.5 * metre * 0.62
-    const band = new Mesh(new CylinderGeometry(bandR, bandR, 0.035 * metre, 16, 1, true), badge)
-    band.position.y = sizeM.heightM * metre * 0.72
-    group.add(band)
-
-    // ── Deck marking. The shape is the identity; the colour reinforces it. ───
-    const deckY = sizeM.heightM * metre * 0.02 + 0.006 * metre
-    const L = sizeM.lengthM * metre
-    const W = sizeM.widthM * metre
-    const plate = (w: number, d: number, x = 0, z = 0, rotY = 0) => {
-      const m = new Mesh(new BoxGeometry(w, 0.012 * metre, d), badge)
-      m.position.set(x, deckY, z)
-      m.rotation.y = rotY
-      group.add(m)
-    }
-    switch (identity.markings) {
-      case 'stripe':
-        plate(W * 0.16, L * 0.78)
-        break
-      case 'chevron':
-        plate(W * 0.15, L * 0.34, -W * 0.16, -L * 0.14, Math.PI / 5)
-        plate(W * 0.15, L * 0.34, W * 0.16, -L * 0.14, -Math.PI / 5)
-        break
-      case 'dot': {
-        const dot = new Mesh(new CylinderGeometry(W * 0.2, W * 0.2, 0.012 * metre, 14), badge)
-        dot.position.y = deckY
-        group.add(dot)
-        break
-      }
-      case 'band':
-        plate(W * 0.92, L * 0.17)
-        break
-      case 'cross':
-        plate(W * 0.14, L * 0.62, 0, 0, Math.PI / 4)
-        plate(W * 0.14, L * 0.62, 0, 0, -Math.PI / 4)
-        break
-    }
-
-    root.add(group)
-  }
-
   /** Advance animation mixers. Call from the render loop with a delta in seconds. */
   update (deltaSeconds: number) {
     for (const entry of this.robots.values()) entry.mixer?.update(deltaSeconds)
@@ -486,10 +499,267 @@ export class RobotLayer {
    * a clone shares both with the cached source, so freeing them here would blank
    * every other robot of the same type. The sources are freed once, in dispose().
    */
+  /**
+   * ── THE LOAD ON A ROBOT'S DECK ──────────────────────────────────────────────
+   *
+   * Point this at the cargo GLB once; `setCargo` then puts one on any unit the
+   * simulation says is carrying. Separate from the constructor because the model
+   * is optional — a fleet with no cargo asset simply never calls this and every
+   * other part of the layer is unaffected.
+   */
+  useCargoModel (modelUrl: string): void {
+    this.cargoUrl = modelUrl
+  }
+
+  /**
+   * Show or hide this unit's load.
+   *
+   * ⚠️ THE BOX IS PARENTED TO THE ROBOT, WHICH IS THE WHOLE DESIGN. `setPose`
+   * already moves the root every frame, so a child rides along with it for free
+   * — no second transform to keep in step, and therefore no way for the load to
+   * lag or drift from the machine carrying it. The alternative, tracking the box
+   * as a sibling and copying the pose into it, is the same picture on a good
+   * frame and a box sliding across the floor on a bad one.
+   *
+   * ⚠️ IDEMPOTENT, BECAUSE THE CALLER IS A PER-FRAME WATCHER. `carrying` is
+   * republished sixty times a second and is true for the whole of a delivery, so
+   * this has to be a no-op on all but the two frames where it actually changes;
+   * rebuilding the clone each tick would load and leak a box per frame.
+   *
+   * Async only on the first call per URL — after that the GLB is served from the
+   * same `modelCache` the chassis use.
+   */
+  async setCargo (id: string, carrying: boolean): Promise<void> {
+    const entry = this.robots.get(id)
+    if (!entry || !this.cargoUrl) return
+    if (carrying === (entry.cargo !== null)) return
+    // A chassis with no declared bay carries nothing rather than guessing. An
+    // invented anchor is what put a box in mid-air over the open-frame unit.
+    const bay = entry.cargoBay
+    if (carrying && !bay) return
+
+    if (!carrying) {
+      // ⚠️ REMOVED, NOT DISPOSED. A clone shares its geometry and materials with
+      // the cached source, exactly as a chassis clone does — freeing them here
+      // would pull the box out from under every other unit carrying one, and
+      // from the next unit to pick one up. The source is released once, in
+      // `dispose`, via `sources`.
+      entry.cargo?.removeFromParent()
+      entry.cargo = null
+      return
+    }
+    // Narrowed for the attach path below — the guard above already returned for
+    // a bay-less chassis, and this tells the compiler so.
+    if (!bay) return
+
+    // ⚠️ ONE IN-FLIGHT ATTACH PER UNIT. `carrying` stays true for the whole of a
+    // delivery and this is called every frame, so between the first frame and
+    // the load resolving — SECONDS, on a 57 MB asset — every one of those frames
+    // re-entered here, because `entry.cargo` is still null the whole time. They
+    // all awaited the same cached promise so nothing downloaded twice, but it
+    // queued hundreds of continuations per pickup for no reason.
+    if (this.cargoPending.has(id)) return
+    this.cargoPending.add(id)
+    if (this.debugCargo) console.info(`[cargo] 1 · ${id} carrying — requesting ${this.cargoUrl}`)
+
+    let gltf: GLTF
+    try {
+      let request = this.modelCache.get(this.cargoUrl)
+      if (!request) {
+        request = this.loader.loadAsync(this.cargoUrl)
+        this.modelCache.set(this.cargoUrl, request)
+      }
+      gltf = await request
+    } catch (error) {
+      // ⚠️ REPORTED, AND THE CACHE ENTRY IS EVICTED. A rejected promise left in
+      // the cache poisons every later pickup in the session — each one awaits
+      // the same failure — so the fleet would carry nothing for the rest of the
+      // run from a single transient 404. Dropping it lets the next pickup retry.
+      this.modelCache.delete(this.cargoUrl)
+      this.cargoPending.delete(id)
+      console.error(
+        `[warehouse] cargo model failed to load from "${this.cargoUrl}" — `
+        + 'robots will carry nothing until this is fixed', error,
+      )
+      return
+    }
+    this.cargoPending.delete(id)
+    if (this.disposed) return
+
+    // Re-checked after the await: a delivery can finish, or the unit can be
+    // removed, while the very first box in the run is still downloading.
+    const live = this.robots.get(id)
+    if (!live || live.cargo !== null) return
+
+    this.sources.add(gltf.scene)
+    const box = gltf.scene.clone(true)
+    box.name = `cargo:${id}`
+
+    if (this.debugCargo) {
+      let meshes = 0
+      box.traverse(c => { if ((c as { isMesh?: boolean }).isMesh) meshes++ })
+      const native = new Box3().setFromObject(box).getSize(new Vector3())
+      console.info(
+        `[cargo] 2 · ${id} GLB loaded and cloned —`,
+        `meshes=${meshes}`,
+        `nativeSize=${native.x.toFixed(3)}×${native.y.toFixed(3)}×${native.z.toFixed(3)}`,
+      )
+      if (meshes === 0) {
+        console.error('[cargo] the clone contains NO meshes — nothing can render. Check the GLB.')
+      }
+    }
+
+    // Sized to the BAY, in metres — never in plan units, and never to a single
+    // fleet-wide figure. Crossing those two scales is how the fleet once
+    // rendered a third of its proper size (CLAUDE.md → "sized in METRES").
+    scaleToMetres(box, bay.fitM, this.projection.worldPerMetre)
+
+    // Built in world units, then the carrier below converts the whole thing into
+    // the root's local space in one step — so nothing inside has to know that
+    // the robot it is riding on is scaled.
+    box.position.y = baseOffsetY(box)
+    box.traverse(child => {
+      const mesh = child as Object3D & {
+        isMesh?: boolean
+        castShadow?: boolean
+        receiveShadow?: boolean
+        frustumCulled?: boolean
+        visible?: boolean
+      }
+      if (!mesh.isMesh) return
+      mesh.castShadow = true
+      mesh.receiveShadow = true
+      mesh.visible = true
+      // ⚠️ CULLING OFF, PERMANENTLY, NOT JUST WHILE DEBUGGING. Three culls by a
+      // mesh's bounding sphere, and this mesh is a CLONE sharing geometry with a
+      // cached source that is never itself in the scene — so nothing has
+      // necessarily computed that sphere against the transform chain the clone
+      // ends up under (a carrier inside a scaled robot root inside the content
+      // root). A stale or unbuilt sphere culls an object that is plainly on
+      // screen, which looks exactly like "the box never loaded". One extra
+      // object per robot is not worth the ambiguity.
+      mesh.frustumCulled = false
+    })
+
+    // ── ORIGIN PROBE ──────────────────────────────────────────────────────────
+    //
+    // ⚠️ A BISECTION, NOT A FIX. Cargo can fail to appear for two entirely
+    // different classes of reason — the model never renders at all (loader,
+    // material, culling, empty geometry), or it renders somewhere useless
+    // (scale, anchor, parent transform) — and from outside those are the same
+    // symptom. This drops the box at world origin, unparented and oversized,
+    // where it is subject to none of the transform chain. If it appears, the
+    // asset and the render path are sound and the fault is placement; if it does
+    // not, placement was never the question.
+    if (this.debugCargo) {
+      const probe = box.clone(true)
+      probe.name = 'cargo-probe'
+      probe.scale.setScalar(4 * this.projection.worldPerMetre)
+      probe.position.set(0, 0, 0)
+      probe.traverse(child => {
+        const mesh = child as Object3D & { isMesh?: boolean; frustumCulled?: boolean }
+        if (mesh.isMesh) mesh.frustumCulled = false
+      })
+      this.group.add(probe)
+      console.info(
+        '[warehouse] cargo PROBE added at world origin, scale ×4 —',
+        'if you cannot see this, the fault is the model or the render path,',
+        'not the placement maths.',
+      )
+    }
+
+    const carrier = new Group()
+    carrier.name = `cargo-mount:${id}`
+    // ⚠️ THE INVERSE SCALE IS WHAT MAKES THE CONTENTS WORLD-SIZED. Without it
+    // the box inherits the chassis's scale on top of its own and comes out
+    // wrong by exactly that factor — subtly on the AMR, absurdly on the AGV.
+    carrier.scale.setScalar(entry.inverseScale)
+    // ⚠️ THE BAY FLOOR IS MEASURED FROM THE GROUND, SO THE ROOT'S OWN PIVOT LIFT
+    // HAS TO COME BACK OUT. The root sits at `baseOffsetY` above the floor plane
+    // (that is what stands the model on the ground), so a child asking to be at
+    // world height H must be placed at H − baseOffsetY in the root's parent
+    // space, and then divided by the root's scale to reach its LOCAL space.
+    // Skip either step and the box lands proportionally wrong on every chassis
+    // whose pivot is not already at its base — which is one of the four.
+    const worldLift = bay.liftM * this.projection.worldPerMetre
+
+    // ── ⚠️ FORWARD IS NOT −Z INSIDE THE ROOT. `yawOffset` IS IN THE WAY. ───────
+    //
+    // The SCENE drives along −Z, and that is what the old code placed cargo
+    // along. But the carrier is a child of the robot's ROOT, and the root's
+    // rotation is `-(heading + rotationY) + yawOffset` — the quarter turn that
+    // exists precisely because the forklift and the AGV were authored with their
+    // long axis on X (CLAUDE.md → "yawOffset needs a human once"). So inside the
+    // root, the model's nose points along ±X, not −Z, and an offset of −Z put
+    // the load exactly 90° off: beside the machine instead of ahead of it. On a
+    // forklift that is a pallet floating past the driver's shoulder.
+    //
+    // It went unnoticed because the two chassis carrying WITHIN themselves have
+    // `forwardM: 0`, where a rotated zero is still zero — only the forklift, the
+    // one chassis that carries ahead of itself, could show the fault. The note
+    // in `CARGO_BAYS` calling its placement "confirmed by observation" was
+    // written against this broken frame, so it confirmed the wrong thing.
+    //
+    // The fix is to undo the yaw for the carrier: place the offset along the
+    // model-space direction that BECOMES travel-forward once the root's rotation
+    // is applied, and turn the carrier back by the same angle so the box is
+    // square to the direction of travel rather than to the mesh's authored axis.
+    const yaw = entry.yawOffset
+    const forwardWorld = bay.forwardM * this.projection.worldPerMetre
+    carrier.rotation.y = -yaw
+    carrier.position.set(
+      Math.sin(yaw) * forwardWorld * entry.inverseScale,
+      (worldLift - entry.baseOffsetY) * entry.inverseScale,
+      -Math.cos(yaw) * forwardWorld * entry.inverseScale,
+    )
+    carrier.add(box)
+
+    live.root.add(carrier)
+    live.cargo = carrier
+
+    if (this.debugCargo) {
+      const world = new Box3().setFromObject(carrier)
+      console.info(
+        `[cargo] 3 · ${id} attached —`,
+        `parent=${carrier.parent?.name}`,
+        `rootInScene=${live.root.parent !== null}`,
+        `worldY=${world.min.y.toFixed(3)}..${world.max.y.toFixed(3)}`,
+        `worldW=${(world.max.x - world.min.x).toFixed(3)}`,
+      )
+      if (world.max.y < 0) console.error('[cargo] the box is BELOW the floor plane.')
+      if (world.max.x - world.min.x < 0.01) console.error('[cargo] the box scaled to ~zero.')
+    }
+
+    // ⚠️ ONE DIAGNOSTIC, ON THE FIRST ATTACH OF THE SESSION. Cargo placement is
+    // pure arithmetic over a scale nothing downstream validates — if the box
+    // ends up inside the chassis, under the slab or a hundred times too big,
+    // every one of those looks identical from outside: no box. Printing the
+    // numbers that decide it turns "it does not work" into a reading. Kept to
+    // one line and one occurrence so it never becomes noise.
+    if (!this.cargoReported) {
+      this.cargoReported = true
+      const worldBox = new Box3().setFromObject(carrier)
+      console.info(
+        '[warehouse] cargo attached —',
+        `unit=${id}`,
+        `bayLiftM=${bay!.liftM}`,
+        `rootScale=${(1 / entry.inverseScale).toFixed(4)}`,
+        `worldY=${worldBox.min.y.toFixed(3)}..${worldBox.max.y.toFixed(3)}`,
+        `worldSize=${(worldBox.max.x - worldBox.min.x).toFixed(3)}`,
+        `visible=${carrier.visible}`,
+        `parent=${carrier.parent?.name ?? 'none'}`,
+      )
+    }
+  }
+
   remove (id: string) {
     const entry = this.robots.get(id)
     if (!entry) return
     entry.mixer?.stopAllAction()
+    // Detached explicitly so the entry never outlives its mount. The clone
+    // itself is shared geometry — see the note in `setCargo`.
+    entry.cargo?.removeFromParent()
+    entry.cargo = null
     this.group.remove(entry.root)
     // Livery materials belong to this instance alone — a clone shares its
     // geometry with the cached source, but not the paint applied over it.

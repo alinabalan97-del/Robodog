@@ -67,8 +67,10 @@ console.log(`seed ${SEED} · ${MINUTES} min · ${posted.length} dock units of ${
  *
  * ⚠️ THE STALL FIGURE IS MEANINGLESS WITHOUT THIS LIST, and it took a wrong
  * reading to see why. Measured over every phase, both dock units showed
- * thirty-five-minute "stalls" — which was a charge, a fault recovery and the
- * congestion governor's parking pool being counted as failures to move. The
+ * thirty-five-minute "stalls" — which was a charge, a fault recovery and time
+ * parked between jobs being counted as failures to move. (The pool in question
+ * was the congestion governor's; the governor is gone and every unit now works
+ * all the time, but a parked unit still reads as a stalled one here.) The
  * unposted fleet scored *worse* on the same measure precisely because it parks,
  * so the comparison said the posting was working when the number said it was
  * broken. Excluded here, the same run reports 150–210 s across the whole fleet,
@@ -200,7 +202,7 @@ const baseSamples = baseRows.reduce((n, r) => n + r.samples, 0)
 console.log(`fleet baseline (${baseRows.length} unposted units)`)
 console.log(`  worst stall on a drive  ${worstBaseSpell.toFixed(1)}s`)
 console.log(`  stopped, any reason     ${pct(baseStopped, baseSamples)} of samples`
-  + '   (mostly the governor\'s parking pool)\n')
+  + '   (parked between jobs, charging, or queueing)\n')
 
 for (const row of track.values()) {
   const beat = row.def.dockService

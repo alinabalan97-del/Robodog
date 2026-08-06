@@ -138,7 +138,11 @@ export class ChargerLayer {
       metalness: options.metalness ?? 0.25,
       roughness: options.roughness ?? 0.55,
       emissive: options.emissive ?? '#000000',
-      emissiveIntensity: options.emissive ? 0.6 : 0,
+      // ⚠️ ZERO. The dock lamps were self-lit at 0.6 and bloomed into floating
+      // glowing orbs beside every charger. State is still carried by the lamp's
+      // COLOUR — free · reserved · charging — which is what the panel reads too;
+      // it is simply lit by the hall now instead of emitting.
+      emissiveIntensity: 0,
     })
     this.materials.add(material)
     return material
@@ -243,16 +247,13 @@ export class ChargerLayer {
         ? this.palette.active
         : state.state === 'reserved' ? this.palette.reserved : this.palette.ready
 
+      // ⚠️ COLOUR ONLY — THE LAMPS NO LONGER EMIT OR PULSE. `emissive` is left
+      // black and `pulsing` is never populated, so the charge animation is inert
+      // by construction rather than by a flag someone can flip back on. The
+      // three states still read off the lamp's colour, which is the same
+      // information; what is gone is the glow that bloomed into an orb beside
+      // every dock and the breathing that drew the eye across the hall.
       entry.lamp.color.set(colour)
-      entry.lamp.emissive.set(colour)
-
-      if (state.state === 'charging') {
-        this.pulsing.add(state.id)
-      } else {
-        // Steady, and dimmer when free than when spoken for: a stall nobody is
-        // using should not compete for attention with one that is in use.
-        entry.lamp.emissiveIntensity = state.state === 'reserved' ? 0.75 : 0.3
-      }
     }
   }
 

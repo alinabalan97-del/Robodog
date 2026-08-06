@@ -380,6 +380,20 @@ interface FleetState {
    * as "nothing is reserved".
    */
   traffic: TrafficTelemetry | null
+  /**
+   * Whether anything is currently DRAWING the traffic ledger.
+   *
+   * ⚠️ THE SNAPSHOT IS NOT FREE AND IT HAS EXACTLY ONE CONSUMER. `snapshot()`
+   * walks every held block and every junction, builds a neighbour set per
+   * junction and sorts both lists; it was being rebuilt on every animation
+   * frame and assigned into reactive state — waking every watcher of `traffic`
+   * sixty times a second — for an overlay that is off by default and exists
+   * only in the 3D view. The one thing that draws it says so through
+   * `setTrafficWanted`, and while nothing does, `traffic` stays null, which the
+   * renderers already treat as "no answer yet" rather than as "nothing is
+   * reserved".
+   */
+  trafficWanted: boolean
   /** Simulated seconds since the run started. */
   elapsedSeconds: number
   tasksCompleted: number
@@ -424,6 +438,7 @@ export const useFleetStore = defineStore('fleet', {
 
     cranes: [],
     traffic: null,
+    trafficWanted: false,
     chargers: [],
     elapsedSeconds: 0,
     tasksCompleted: 0,
@@ -505,6 +520,29 @@ export const useFleetStore = defineStore('fleet', {
       }
       this.publish(sim.telemetry())
       this.cranes = sim.craneTelemetry()
+      this.publishTraffic(sim)
+    },
+
+    /**
+     * Say whether the aisle ledger is being drawn.
+     *
+     * Called by the screen that owns the traffic toggle. It is a plain flag
+     * rather than a subscriber count because there is one overlay in one view;
+     * if a second consumer ever appears, this becomes a count and nothing else
+     * changes. See `trafficWanted` for what it saves.
+     */
+    setTrafficWanted (wanted: boolean) {
+      if (this.trafficWanted === wanted) return
+      this.trafficWanted = wanted
+      // Filled on the way on rather than a frame later, so the overlay never
+      // shows one blank frame when it is switched on; emptied on the way off so
+      // a stale ledger cannot be drawn as current if it is switched back.
+      this.traffic = wanted ? ensureEngine().trafficTelemetry() : null
+    },
+
+    /** The one place the ledger is republished. Skipped while nothing draws it. */
+    publishTraffic (sim: FleetSim) {
+      if (!this.trafficWanted) return
       this.traffic = sim.trafficTelemetry()
     },
 
@@ -538,7 +576,7 @@ export const useFleetStore = defineStore('fleet', {
       sim.tick(step)
       this.publish(sim.telemetry())
       this.cranes = sim.craneTelemetry()
-      this.traffic = sim.trafficTelemetry()
+      this.publishTraffic(sim)
       this.frameAgeSeconds = 0
     },
 

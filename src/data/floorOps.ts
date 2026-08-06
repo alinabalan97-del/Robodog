@@ -351,6 +351,17 @@ export const floorOps: FloorOpsData = {
     //
     // The 2D map is now a projection of the same geometry the 3D view renders,
     // not a second opinion about it. Re-run the script when the model changes.
+    //
+    // ⚠️ THE MAP NO LONGER READS THIS FIELD — it imports `warehouseZones`
+    // directly, through `src/data/floorSchematic.ts`, which groups the
+    // extractor's overlapping rectangles into addressed storage runs before
+    // anything is drawn. Same source, one hop shorter, and the grouping is
+    // shared rather than re-derived per renderer.
+    //
+    // Kept for the same reason `vehicles` and `routes` below are: this object is
+    // the shape a backend satisfies, and a floor-plan service publishes its
+    // zones. It is the plan's own record, not dead weight — but nothing renders
+    // it, so editing it changes nothing on screen.
     zones: warehouseZones,
 
     /**

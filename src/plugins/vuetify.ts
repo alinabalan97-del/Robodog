@@ -76,7 +76,24 @@ export default createVuetify({
         dark: true,
         colors: {
           background: '#020D20', // app page background — behind every screen
-          surface: '#162032', // default component surface — cards, sheets, menus, dialogs 
+          // ⚠️ THE 2D MAP'S SLAB, AND IT IS THE FLOOR — NOT THE FRAME AROUND IT.
+          // The margin outside the hall outline is the app's `background` above;
+          // this is the ground INSIDE it, which every hairline, label and robot
+          // on the plan is drawn against.
+          //
+          // ⚠️ IT IS NOT `floor-graphite`, AND THE TWO ARE NOW ALLOWED TO
+          // DISAGREE. That token is the 3D hall slab — pure black, chosen so a
+          // lit floor shows only specular reflection (see its note below). This
+          // is a flat drawing with no lighting in it, so it takes a value picked
+          // for legibility on a screen instead. Same building, two grounds.
+          //
+          // ⚠️ AND IT IS ITS OWN TOKEN DESPITE MATCHING `surface` EXACTLY TODAY.
+          // The value is deliberate, the coincidence is not: aliasing the map's
+          // floor to the card surface means the next time someone retunes cards
+          // the warehouse floor moves with them, silently, in a view whose whole
+          // job is being read at a glance.
+          'map-floor': '#162032', // 2D map slab — the ground inside the hall outline
+          surface: '#162032', // default component surface — cards, sheets, menus, dialogs
           // Built from #7F8692 at ~12% opacity over the app background.
           // ── DEFAULT TEXT COLOR ──
           // Vuetify does NOT ship `on-surface` in its stock palette: it DERIVES one
@@ -108,6 +125,58 @@ export default createVuetify({
           'secondary-darken-1': '#40E6C2', // darker secondary — hover/pressed of secondary
           'secondary-accent': '#4DFDE0', // assistant gradient END (Figma: rgb(77,253,224))
           'secondary-deep': '#2DA38A', // Figma `data viz/color 2/2` — the location-selector teal
+          // ── The fleet's paint ──────────────────────────────────────────────
+          // The hull colour every robot in the building is painted. A token
+          // rather than a hex in the 3D layer, for the same reason every other
+          // colour here is one: `src/data/fleet.ts` names it and the viewer
+          // resolves it live, so the fleet re-paints with the theme instead of
+          // carrying a literal the design system cannot see. NOT a status
+          // colour and never used as one — the state vocabulary owns those.
+          // ⚠️ A DARKER SHADE OF #87EFD9, NOT A NEW COLOUR — same hue, dropped
+          // in value. The original was the brightest surface in the hall by a
+          // wide margin, which is why it read as glowing even though the hull
+          // has never had any emissive on it: a pale surface under a strong key
+          // light IS bright. Darkening the paint is what lets the machine be the
+          // visible thing instead of the light coming off it, and it also drops
+          // the hull well clear of the bloom threshold (see `addBloom`).
+          'fleet-body': '#47897A', // robot hull — matte painted deep aqua
+          'fleet-trim': '#1B2027', // wheels, mast, undercarriage — near-black detail
+          // ⚠️ THE AISLE PATHS ARE AN INLAY NOW, NOT A LIGHT — this token used
+          // to be a cyan `floor-guide` driven into HDR so it would bloom. It is
+          // near-black on a black floor on purpose: the lines are meant to be
+          // read from the way they catch reflection against the matte field
+          // around them, the way a polished inlay in concrete is. Colour is
+          // deliberately doing almost nothing here; see `RouteInput.engraved`.
+          'floor-inlay': '#0B0C0E', // aisle path inlay — near-black, read by finish
+          // ⚠️ NEUTRAL, NOT THE APP'S `background`. The slab used to borrow that
+          // token, which is a dark NAVY (#020D20 — twice as much blue as red);
+          // under the hall's cool key light that cast pushed the floor toward
+          // slate rather than black. A true neutral is what reads as deep
+          // graphite and what makes the cyan guides look like the only colour in
+          // the room.
+          // Pure, and NEUTRAL — no blue or grey cast. Everything the floor shows
+          // now arrives as specular reflection rather than as albedo; see the
+          // note in `concrete()` and the `envMapIntensity` in `applySurfaces`.
+          'floor-graphite': '#000000', // hall slab — pure black
+          // Racking, shelving and workstation frames: frosted acrylic rather
+          // than painted steel.
+          //
+          // ⚠️ THE ALBEDO OF DARK TRANSLUCENT GLASS, NOT OF PAINT. Kept low
+          // because a translucent surface STACKS: looking into a rack run you
+          // see through four or five members at once, and each one adds its own
+          // value again. A mid-grey here compounds into a pale block by the
+          // third layer; this is the level at which a deep run still reads as
+          // charcoal rather than washing out.
+          //
+          // ⚠️ DARKENING THIS RAISES CONTRAST BY WIDENING THE GAP TO THE EDGES,
+          // not by separating the racking from the floor — the slab is darker
+          // still, so a darker rack is nominally CLOSER to it in value. What
+          // actually reads as contrast here is the specular rim: it is driven by
+          // `envMapIntensity`, which the albedo does not touch, so lowering the
+          // body while the edges hold their brightness makes each member's
+          // outline sharper and the mass behind it recede. Push it much further
+          // and the frames stop being visible between their own highlights.
+          'rack-steel': '#1E242B', // racking, shelving, workstation frames — dark charcoal glass
           tertiary: '#64A179', // muted brand green — identity surfaces (avatars). NOT a status color
           error: '#D87894', // error & validation states, destructive actions
           info: '#68BEFF', // informational states & badges
@@ -138,6 +207,11 @@ export default createVuetify({
           // counterpart to the brand palette above. The light theme is wired up and selectable,
           // but it will not read as "light" until these are replaced.
           background: '#121212', // app page background
+          // Declared so the two themes carry the same key set — a token missing
+          // from one theme renders as nothing at all rather than as a fallback,
+          // and the map would lose its floor the moment anyone selected light.
+          // Still the dark value; see the placeholder note above.
+          'map-floor': '#162032', // 2D map slab — the ground inside the hall outline
           surface: '#212121', // cards, sheets, menus, dialogs
           // The light counterpart of the dark theme's `on-surface` above — same
           // reasoning. Rebrand both together so text stays legible in each theme.
@@ -158,6 +232,53 @@ export default createVuetify({
           'primary-deep': '#6674D9', // 2D/3D active-segment gradient END
           'secondary-accent': '#4DFDE0', // assistant gradient END
           'secondary-deep': '#2DA38A', // the location-selector teal
+          // The fleet's paint — see the note in the dark theme. Same hull colour
+          // in both themes: it is a physical machine, not a surface that inverts.
+          // ⚠️ A DARKER SHADE OF #87EFD9, NOT A NEW COLOUR — same hue, dropped
+          // in value. The original was the brightest surface in the hall by a
+          // wide margin, which is why it read as glowing even though the hull
+          // has never had any emissive on it: a pale surface under a strong key
+          // light IS bright. Darkening the paint is what lets the machine be the
+          // visible thing instead of the light coming off it, and it also drops
+          // the hull well clear of the bloom threshold (see `addBloom`).
+          'fleet-body': '#47897A', // robot hull — matte painted deep aqua
+          'fleet-trim': '#1B2027', // wheels, mast, undercarriage — near-black detail
+          // ⚠️ THE AISLE PATHS ARE AN INLAY NOW, NOT A LIGHT — this token used
+          // to be a cyan `floor-guide` driven into HDR so it would bloom. It is
+          // near-black on a black floor on purpose: the lines are meant to be
+          // read from the way they catch reflection against the matte field
+          // around them, the way a polished inlay in concrete is. Colour is
+          // deliberately doing almost nothing here; see `RouteInput.engraved`.
+          'floor-inlay': '#0B0C0E', // aisle path inlay — near-black, read by finish
+          // ⚠️ NEUTRAL, NOT THE APP'S `background`. The slab used to borrow that
+          // token, which is a dark NAVY (#020D20 — twice as much blue as red);
+          // under the hall's cool key light that cast pushed the floor toward
+          // slate rather than black. A true neutral is what reads as deep
+          // graphite and what makes the cyan guides look like the only colour in
+          // the room.
+          // Pure, and NEUTRAL — no blue or grey cast. Everything the floor shows
+          // now arrives as specular reflection rather than as albedo; see the
+          // note in `concrete()` and the `envMapIntensity` in `applySurfaces`.
+          'floor-graphite': '#000000', // hall slab — pure black
+          // Racking, shelving and workstation frames: frosted acrylic rather
+          // than painted steel.
+          //
+          // ⚠️ THE ALBEDO OF DARK TRANSLUCENT GLASS, NOT OF PAINT. Kept low
+          // because a translucent surface STACKS: looking into a rack run you
+          // see through four or five members at once, and each one adds its own
+          // value again. A mid-grey here compounds into a pale block by the
+          // third layer; this is the level at which a deep run still reads as
+          // charcoal rather than washing out.
+          //
+          // ⚠️ DARKENING THIS RAISES CONTRAST BY WIDENING THE GAP TO THE EDGES,
+          // not by separating the racking from the floor — the slab is darker
+          // still, so a darker rack is nominally CLOSER to it in value. What
+          // actually reads as contrast here is the specular rim: it is driven by
+          // `envMapIntensity`, which the albedo does not touch, so lowering the
+          // body while the edges hold their brightness makes each member's
+          // outline sharper and the mass behind it recede. Push it much further
+          // and the frames stop being visible between their own highlights.
+          'rack-steel': '#1E242B', // racking, shelving, workstation frames — dark charcoal glass
           tertiary: '#64A179', // muted brand green — identity surfaces (avatars). NOT a status color
           primary: '#2196F3', // main brand color lifted for legibility on dark — CTAs, links, active states
           'primary-darken-1': '#277CC1', // hover/pressed of primary

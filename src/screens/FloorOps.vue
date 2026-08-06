@@ -92,6 +92,25 @@
    * on buries the floor it explains under its own markup.
    */
   const showTraffic = ref(false)
+
+  /**
+   * Tell the store when the aisle ledger is actually being drawn.
+   *
+   * ⚠️ THE SNAPSHOT IS REBUILT PER FRAME AND HAS ONE CONSUMER — this overlay, in
+   * this view. Publishing it unconditionally meant the engine walked its whole
+   * ledger and the store woke every watcher of `traffic` sixty times a second so
+   * that a hidden layer could ignore the result. The demand is declared here
+   * because this is the only place that knows both halves of the condition:
+   * which view is mounted, and whether the operator has the overlay on.
+   *
+   * `immediate` so the initial 2D view starts with it off rather than paying for
+   * one frame of it before the watcher first runs.
+   */
+  watch(
+    () => mapView.value === '3d' && showTraffic.value,
+    wanted => fleet.setTrafficWanted(wanted),
+    { immediate: true },
+  )
   /**
    * The focused unit. Seeded from the fleet itself, not from the mission
    * dataset — the fleet IS the live vehicle layer now, and pointing this at a
@@ -308,7 +327,15 @@
     info: 'surface-bright',
   }
 
-  watch(() => fleet.events, events => {
+  // ⚠️ KEYED ON THE HIGHEST ID, NOT ON THE ARRAY. The store republishes a fresh
+  // copy of the feed on every tick, so watching the array — deeply, as this used
+  // to — woke this handler sixty times a second and walked the whole ring each
+  // time, to discover nothing had happened on all but a handful of them. The
+  // feed is append-only with monotonic ids, so its last id is a complete summary
+  // of whether there is anything new, and the handler now runs only when there
+  // genuinely is.
+  watch(() => fleet.events[fleet.events.length - 1]?.id ?? 0, () => {
+    const events = fleet.events
     // Only the newest qualifying event is raised. A burst — an emergency created,
     // a robot reassigned and a task interrupted all inside one tick — is one
     // situation, and three stacked toasts would bury the map they are about.
@@ -319,7 +346,7 @@
     }
     if (events.length) lastEventId = Math.max(lastEventId, events[events.length - 1]!.id)
     if (newest) notify(newest.message, EVENT_COLOR[newest.severity] ?? 'surface-bright')
-  }, { deep: true })
+  })
 
   /**
    * Raise an urgent delivery.
@@ -705,6 +732,7 @@
               :robot-route="robotRoute"
               :route-priority="routePriority"
               :emergency-marks="emergencyMarks"
+              :zoom="zoom"
               :selected-vehicle-id="selectedVehicleId"
               @select-vehicle="selectVehicle"
               @select-object="notify(`Selected ${$event}`)"
@@ -944,8 +972,9 @@
   color: rgb(var(--v-theme-on-surface-weak));
 }
 
+/* `min-height`, not `height` — see `.ops-layout` below for why. */
 .ops-main {
-  height: 100vh;
+  min-height: 100vh;
 }
 
 /* Figma frame 1010109366: rail 56 · sidebar 350 · 12 gap · map 1005 · 16 right
@@ -956,8 +985,15 @@
   grid-template-columns: 350px minmax(0, 1fr);
   gap: 12px;
   padding: 0 16px 8px 0;
-  /* Keep in step with the v-app-bar height above (16 top inset + 60 navigation). */
-  height: calc(100vh - 76px);
+  /* ⚠️ `min-height`, not `height`. On a panel much wider than the building's own
+     aspect ratio, `FloorMap.vue`'s plan is width-locked and its height can
+     legitimately exceed one screen's worth of vertical space (see the note on
+     `.floor-map__svg`) — a fixed `height` here would clip that, which is exactly
+     the empty-side-margins bug this pairs with. `min-height` keeps the console
+     filling exactly one screen in the normal case (nothing to grow into) and
+     lets it grow — and the page scroll — only when the plan genuinely needs
+     more room. Same pattern the sub-1280px breakpoint below already uses. */
+  min-height: calc(100vh - 76px);
 }
 
 /* ── The detail rail's view switch ──────────────────────────────────────────
@@ -1101,6 +1137,12 @@
      published as a var so the two can't drift apart. */
   border: 1px solid var(--neutral-bg-hover);
   border-radius: var(--radius-md); /* 8px — the content tier, not the 24px section tier */
+  /* ⚠️ THE FRAME IS THE APP'S `background`, AND IT STAYS THERE. This was briefly
+     a light neutral of its own and it was the wrong surface to move: the dark
+     navy frame is what the whole console's chrome is built on, so lifting it
+     detached the map from the top bar and the rail around it. What the plan
+     needed was a lighter FLOOR, not lighter paper — that is `map-floor`, set on
+     `.hall` in FloorMap.vue, and it is the only thing that changed. */
   background-color: rgb(var(--v-theme-background));
   /* Dot grid. A background-image rather than a pseudo-element, so it paints over
      the fill and under every child automatically — the plan needs no z-index.

@@ -85,7 +85,13 @@
   })
 
   const typeName = (id: RobotTypeId) => robotTypes[id].name
-  const shortCode = (robot: FleetRobot) => robot.code.split('-')[1] ?? robot.code
+
+  // ⚠️ A `shortCode` HELPER USED TO SIT HERE — `AMR-01` → `01` — and it is gone
+  // rather than merely unused. `FLT-01` rendered as `01` too, so it put the same
+  // label on two different machines; `FloorMap` hit the identical bug and
+  // replaced it with the call-sign from `UNIT_LIVERY` (see `unitName`). This
+  // panel had already stopped calling it, which is the only reason it never
+  // shipped the ambiguity twice.
 
   /** Charge bar colour. Always paired with the printed figure beside it. */
   function chargeTone (pct: number) {

@@ -94,7 +94,6 @@ import type {
   RobotState,
   RobotTelemetry,
   RobotType,
-  RobotTypeId,
   Station,
   TaskKind,
   TaskPriority,
@@ -104,7 +103,7 @@ import type {
 import { assertConnected, buildNavGraph, findRoute, routeLength } from './navGraph'
 import type { ConnectivityReport, NavGraph, NavNode } from './navGraph'
 import { TRAFFIC_PRIORITY, TrafficController } from './trafficControl'
-import type { ConflictKind, TrafficTelemetry } from './trafficControl'
+import type { TrafficTelemetry } from './trafficControl'
 import { AsrsSim } from './asrsSim'
 import type { AsrsTelemetry } from './asrsSim'
 
@@ -477,6 +476,14 @@ const MAX_TURN_RATE = 3.2
  * whole rack run gets worked rather than its first few faces; small enough that
  * a unit is never sent past a free face to a further one for no reason.
  */
+/**
+ * ⚠️ RAISING THIS DOES NOTHING — MEASURED. Taking it from 5 to 8 produced lane
+ * shares and task counts IDENTICAL to three decimal places on all three seeds,
+ * because an area rarely has even five free stops at once: `Math.min(n, free.length)`
+ * is already `free.length` almost every time it is evaluated. The shortlist is
+ * effectively "every free stop in this area" as it stands, so it is not the
+ * route-diversity lever it looks like.
+ */
 const STATION_SHORTLIST = 5
 
 const TAU = Math.PI * 2
@@ -524,7 +531,6 @@ export class FleetSim {
   readonly graph: NavGraph
   readonly connectivity: ConnectivityReport
 
-
   private readonly stationsById = new Map<string, Station>()
   private readonly chargerStations: Station[] = []
   /**
@@ -556,12 +562,17 @@ export class FleetSim {
    */
   private readonly traffic: TrafficController
 
-  /** Who refused the most recent claim. Read straight after a `tryClaim` miss. */
+  /**
+   * Who refused the most recent claim. Read straight after a `tryClaim` miss.
+   *
+   * ⚠️ THE ONLY THING KEPT OFF A REFUSAL, and the blocker's ID is kept because
+   * `breakDeadlocks` cannot see a cycle without it. The grant also carries the
+   * conflict KIND and the queue position; both were stored here beside this and
+   * neither was ever read, so they are taken off the grant at the point of use
+   * instead of being cached on the engine. A field nothing reads is worse than
+   * absent — it reads as state the model maintains.
+   */
   private lastClaimBlocker: string | null = null
-  /** What KIND of refusal it was. Drives the state an operator sees. */
-  private lastConflict: ConflictKind = 'clear'
-  /** How many units are ahead of this one for the thing it was refused. */
-  private lastQueuePosition = 0
 
   private readonly units: Unit[] = []
   private readonly unitsById = new Map<string, Unit>()
@@ -650,7 +661,14 @@ export class FleetSim {
   private cargoSerial = 4800
 
   private elapsed = 0
-  private completed = 0
+
+  // ⚠️ A SECOND `completed` COUNTER USED TO LIVE HERE and is deleted rather than
+  // left running. It was incremented beside `stats.deliveryCount` and read by
+  // nothing — the residue of the era when the dead lift model shared a
+  // completion counter with delivered pallets, which is the defect documented at
+  // the top of this file. Two totals for one quantity is exactly how the roster
+  // came to disagree with `metrics.tasksCompleted`; one of them has to be the
+  // number, and it is `stats.deliveryCount`.
 
   /**
    * Running totals behind `FleetMetrics`.
@@ -948,11 +966,6 @@ export class FleetSim {
     return -mean * Math.log(1 - this.rng())
   }
 
-  private pick<T> (list: readonly T[]): T | undefined {
-    if (list.length === 0) return undefined
-    return list[Math.floor(this.rng() * list.length)]
-  }
-
   /**
    * Work ARRIVING at the building.
    *
@@ -1180,7 +1193,6 @@ export class FleetSim {
     for (const unit of this.units) {
       this.stats.totalUnitSeconds += dt
       if (unit.task) this.stats.busyUnitSeconds += dt
-
     }
   }
 
@@ -1430,15 +1442,19 @@ export class FleetSim {
     // every pick face is spoken for. Without this an emergency sat at the head
     // of a correctly-ordered queue for twenty-six simulated minutes while the
     // scheduler did exactly as it was told.
-    from ??= this.preemptStation(unit, task, duty.pickup, 'pickup')
+    from ??= this.preemptStation(unit, task, duty.pickup)
     if (!from) return false
 
     let to = this.chooseStation(duty.dropoff, unit, from.x, from.y, from.id)
-    to ??= this.preemptStation(unit, task, duty.dropoff, 'dropoff', from.id)
+    to ??= this.preemptStation(unit, task, duty.dropoff, from.id)
     if (!to) return false
 
     const at = this.queue.indexOf(task)
     if (at >= 0) this.queue.splice(at, 1)
+    // Off the backlog, so it can never be reported undispatchable again — and
+    // the set that remembers it was does not accumulate an entry per emergency
+    // for the lifetime of a wall display left running. See `warnUnassignable`.
+    this.warnedUnassignable.delete(task.id)
 
     // ⚠️ THE BEAT ENDS HERE, AND NOT ONE LINE EARLIER. Everything above can
     // still return false — a taken pick face, a pin worth waiting for — and a
@@ -1719,7 +1735,6 @@ export class FleetSim {
     unit: Unit,
     task: Task,
     areas: readonly WorkArea[],
-    role: 'pickup' | 'dropoff',
     exclude?: string | null,
   ): Station | null {
     if (task.priority !== 'emergency') return null
@@ -2121,7 +2136,6 @@ export class FleetSim {
     unit.reserved.delete(stationId)
   }
 
-
   /**
    * Send the unit home, or straight onto a charger when it is running low.
    *
@@ -2226,7 +2240,6 @@ export class FleetSim {
     unit.patrolWait = this.patrolWait()
     this.beginPhase(unit, 'toWaitPoint', wait)
   }
-
 
   /**
    * Take the first free stop from `ids`, starting at `start` and wrapping.
@@ -2725,23 +2738,6 @@ export class FleetSim {
   }
 
   /**
-   * Take the node the unit is about to drive into, if it is going.
-   *
-   * Two conditions, and the second is what stops units clipping each other at a
-   * crossing: the node must be unclaimed, AND no other unit may still be
-   * standing within clearance of it. A claim alone is not enough, because a unit
-   * releases its claim the moment it moves on while its body is still there.
-   */
-  /**
-   * Take the lane block between two nodes, if it is free.
-   *
-   * A unit may hold two blocks for the instant it straddles a junction — it
-   * acquires the next before releasing the last — but never two it is not
-   * physically on. Acquire-then-release is the order that matters: releasing
-   * first would open a window in which an oncoming unit could take the block the
-   * first one is still standing in.
-   */
-  /**
    * This unit's right of way, as the controller ranks it.
    *
    * ⚠️ READ OFF WHAT IT IS DOING, NOT OFF ITS ID. A unit's rank changes during a
@@ -2760,12 +2756,19 @@ export class FleetSim {
     return TRAFFIC_PRIORITY.empty.rank
   }
 
+  /**
+   * Take the lane block between two nodes, if it is free.
+   *
+   * A unit may hold two blocks for the instant it straddles a junction — it
+   * acquires the next before releasing the last — but never two it is not
+   * physically on. Acquire-then-release is the order that matters: releasing
+   * first would open a window in which an oncoming unit could take the block the
+   * first one is still standing in.
+   */
   private tryEnterSegment (unit: Unit, fromId: string, toId: string): boolean {
     const grant = this.traffic.requestSegment(unit.def.id, fromId, toId, this.trafficRank(unit))
     if (!grant.granted) {
       this.lastClaimBlocker = grant.blockedBy
-      this.lastConflict = grant.conflict
-      this.lastQueuePosition = grant.queuePosition
       return false
     }
 
@@ -2785,10 +2788,16 @@ export class FleetSim {
     unit.segment = null
   }
 
+  /**
+   * Take the node the unit is about to drive into, if it is going.
+   *
+   * Two conditions, and the second is what stops units clipping each other at a
+   * crossing: the node must be unclaimed, AND no other unit may still be
+   * standing within clearance of it. A claim alone is not enough, because a unit
+   * releases its claim the moment it moves on while its body is still there.
+   */
   private tryClaim (unit: Unit, nodeId: string): boolean {
     this.lastClaimBlocker = null
-    this.lastConflict = 'clear'
-    this.lastQueuePosition = 0
 
     // A unit that has just yielded must not immediately take back what it gave
     // up, or breaking a deadlock would only re-form it a frame later.
@@ -2810,7 +2819,6 @@ export class FleetSim {
           // standing in it is a link in a gridlock chain like any other, and an
           // unnamed link is a cycle the detector cannot see.
           this.lastClaimBlocker = other.def.id
-          this.lastConflict = this.traffic.isIntersection(nodeId) ? 'crossing' : 'merging'
           return false
         }
       }
@@ -2828,8 +2836,6 @@ export class FleetSim {
     const grant = this.traffic.requestNode(unit.def.id, nodeId, this.trafficRank(unit))
     if (!grant.granted) {
       this.lastClaimBlocker = grant.blockedBy
-      this.lastConflict = grant.conflict
-      this.lastQueuePosition = grant.queuePosition
       return false
     }
 
@@ -2843,24 +2849,15 @@ export class FleetSim {
    * traffic lane, so it counts against nobody's following distance or junction
    * clearance. Rack faces are deliberately NOT spurs: a unit picking really does
    * block the aisle, and traffic really should queue behind it.
-   */
-  /**
-   * The node this unit would drive to AFTER `nodeId`, on its current route.
    *
-   * Null when `nodeId` is the end of the route — a unit stopping AT a junction is
-   * not passing through it, so there is no exit to check. (Nothing routes to a
-   * plain junction as a destination; this is the give-way detour, which parks a
-   * unit on one deliberately.)
+   * ⚠️ AN `exitAfter` HELPER USED TO SIT HERE and is deleted rather than kept
+   * "for the next thing that needs it". It answered "which node would this unit
+   * drive to after that one", for the do-not-enter-a-junction-you-cannot-leave
+   * rule documented in `tryClaim` — the rule that was measured, found to take
+   * throughput to zero at every fleet size, and removed. Its only caller went
+   * with it, so what was left was a private method nothing called describing a
+   * mechanism the file explicitly warns against reintroducing.
    */
-  private exitAfter (unit: Unit, nodeId: string): string | null {
-    const route = unit.route
-    if (!route) return null
-    for (let i = unit.legIndex; i < route.length - 1; i++) {
-      if (route[i]!.id === nodeId) return route[i + 1]!.id
-    }
-    return null
-  }
-
   private isOffRoad (unit: Unit): boolean {
     return unit.speed < 0.1 && this.graph.spurNodes.has(unit.nodeId)
   }
@@ -3418,7 +3415,6 @@ export class FleetSim {
           }
         }
         unit.task = null
-        this.completed += 1
 
         // ⚠️ THE RESUME HAPPENS HERE, BEFORE THE UNIT STANDS DOWN. Waiting for
         // ordinary dispatch would work eventually — the interrupted job is on
@@ -3737,7 +3733,7 @@ export class FleetSim {
         }
         unit.phase = 'dockService'
         unit.dwell = fleetSimParams.dockServiceSeconds
-        unit.heading = this.stopHeading(unit, unit.goalStationId) ?? unit.heading
+        unit.heading = this.stopHeading(unit.goalStationId) ?? unit.heading
         return
       }
       case 'toWaitPoint':
@@ -3764,7 +3760,7 @@ export class FleetSim {
    * access point — it is then ON the lane, and the direction of travel is the
    * honest facing.
    */
-  private stopHeading (unit: Unit, stationId: string | null): number | null {
+  private stopHeading (stationId: string | null): number | null {
     const station = stationId ? this.stationsById.get(stationId) : undefined
     if (!station?.access) return null
     const dx = station.x - station.access[0]
@@ -3779,8 +3775,46 @@ export class FleetSim {
     if (seconds <= 0) return
     const step = 0.05
     for (let t = 0; t < seconds; t += step) this.tick(step)
+
     // The clock reads from the first frame the operator sees, not from the
     // model's own cold start — a warm-up is scaffolding, not elapsed shift time.
+    //
+    // ⚠️ REBASE THE STORED INSTANTS; DO NOT ONLY ZERO THE CLOCK. `elapsed` is
+    // the origin every absolute time in the model is measured against, so
+    // resetting it alone leaves `createdAt` and `assignedAt` in the OLD time
+    // base — and every duration derived from them comes out wrong for as long
+    // as the warm-up lasted. It failed silently in two places:
+    //
+    //   · a job carried over from the warm-up completed with
+    //     `elapsed - createdAt` NEGATIVE. `recordCompletion` clamps at zero, so
+    //     the first minutes of every run booked 0-second deliveries into
+    //     `averageDeliverySeconds`, `averageQueueSeconds` and the emergency
+    //     response average — the three figures the metrics panel leads with.
+    //   · `waitingSeconds` reported 0 for a job that had genuinely been queued
+    //     for two minutes, on a dispatch surface whose whole job is to say how
+    //     long work has been waiting.
+    //
+    // Shifting by the offset keeps every duration exact and simply makes
+    // pre-shift instants negative, which is what they are.
+    const offset = this.elapsed
+    const rebase = (task: Task) => {
+      task.createdAt -= offset
+      if (task.assignedAt !== null) task.assignedAt -= offset
+    }
+    for (const task of this.queue) rebase(task)
+    for (const unit of this.units) if (unit.task) rebase(unit.task)
+
+    // ⚠️ THE FEED IS EMPTIED RATHER THAN REBASED, and that is the honest answer
+    // rather than the lazy one. `TaskPanel` states in its own caption that these
+    // times are "simulated minutes since the run started", so a warm-up event
+    // has no correct rendering here: left alone it timestamped up to 03:00 while
+    // the clock beside it read 00:00 — a live surface showing a future time,
+    // which is precisely the failure the freshness rules exist to prevent — and
+    // rebased it would read as a negative clock. Nothing in the warm-up happened
+    // during the shift an operator is watching, so nothing from it is reported.
+    this.events.length = 0
+    this.warnedUnassignable.clear()
+
     this.elapsed = 0
   }
 

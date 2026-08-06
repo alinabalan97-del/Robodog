@@ -707,27 +707,83 @@ export const robotTypes: Record<RobotTypeId, RobotType> = {
  * that is what actually tells them apart.
  */
 export const robotLivery = {
-  /** The hull. The one colour every chassis in the family shares. */
-  body: 'on-surface-variant',
-  /** Wheels, mast, undercarriage — anything reading as dark on the original. */
-  trim: 'outline-variant',
   /**
-   * Fallback accent per chassis, plus the ASRS cranes.
+   * The hull. The one colour every chassis in the family is painted.
+   *
+   * A token, never a hex — the viewer resolves it live, so the fleet re-paints
+   * with the theme. Defined in `vuetify.ts` beside every other colour in the
+   * app rather than as a literal only the 3D layer can see.
+   */
+  body: 'fleet-body',
+  /**
+   * Wheels, mast, undercarriage — anything reading as dark on the original.
+   *
+   * Near-black rather than the UI's hairline grey: this is rubber and shadowed
+   * structure on a physical machine, and `outline-variant` is a border colour
+   * that came out looking like unpainted plastic against the hull.
+   */
+  trim: 'fleet-trim',
+  /**
+   * The accent, per chassis, plus the ASRS cranes.
+   *
+   * ⚠️ ONE COLOUR FOR THE WHOLE FLEET, AND IT IS THE BRAND PRIMARY. Chassis type
+   * used to be a colour — AGV blue, AMR mint, forklift violet — and it is now a
+   * SHAPE only: the three models are already unmistakably different machines, so
+   * the hue was spending the brand's most recognisable asset on a distinction the
+   * silhouette already makes. `primary` is the token `brand.ts` records as the
+   * product's primary; nothing here is a hex, so a rebrand repaints the fleet.
    *
    * `ASRS` is a key here without being a `RobotTypeId`: the cranes are built
    * from primitives in `warehouse/asrsLayer.ts` rather than loaded as a chassis,
-   * but they are the same manufacturer's plant and carry the same paint. Keyed
-   * by plain string for that reason.
+   * but they are the same manufacturer's plant and carry the same paint.
    */
   accent: {
-    A: 'primary-bright',
-    B: 'secondary',
-    C: 'primary-accent',
-    ASRS: 'info',
+    A: 'primary',
+    B: 'primary',
+    C: 'primary',
+    ASRS: 'primary',
   } as Record<string, string>,
-  /** A shared finish: semi-matte industrial paint rather than five surfaces. */
-  roughness: 0.52,
-  metalness: 0.22,
+  /**
+   * The hull finish: matte painted metal.
+   *
+   * ⚠️ ROUGH ENOUGH TO STAY MATTE UNDER THE SCENE'S REFLECTION PROBE. The
+   * building's racking is metal and needs an environment map to render at all
+   * (see `addEnvironment`), and the fleet is lit by the same probe — a hull much
+   * below 0.5 picks it up as a gloss coat and reads as wet plastic rather than
+   * as paint.
+   */
+  roughness: 0.62,
+  metalness: 0.12,
+  /**
+   * The colour a machine's own EDGES glow — the Fresnel silhouette rim in
+   * `warehouse/robotLivery.ts`, and nothing else.
+   *
+   * ⚠️ IT LIGHTS THE MODEL, NEVER THE FLOOR AROUND IT. No aura, no shell, no
+   * disc under the chassis, no projected light. One of those was built and
+   * removed: seen from the angle this view is actually watched from, a soft
+   * glow around a robot reads as a CIRCLE ON THE GROUND, which on an operations
+   * display is the vocabulary of a selection ring or a safety radius — and this
+   * floor draws real ones of those (`trafficLayer.ts`). A decorative ring here
+   * is not redundant, it is a false reading.
+   *
+   * ⚠️ ONE COLOUR FOR THE WHOLE FLEET, AND IT IS NOT AN IDENTITY CHANNEL. The
+   * per-unit accents (`UnitLivery.accent`) already spend the primary family on
+   * telling machines apart; if the rim took each unit's own tone it would become
+   * a second, louder copy of that channel. The rim says "this is one of our
+   * machines, and it is running" — the same sentence about every unit — and the
+   * indicator strip, the deck marking and the call-sign keep saying which one.
+   *
+   * ⚠️ AND IT IS NEVER A STATE. Every robot's edges light the same amount
+   * whatever it is doing. The moment the rim brightens for a fault or a
+   * selection it becomes status conveyed by colour and intensity alone, which
+   * the domain rules forbid — those already have a word, an icon and a reserved
+   * status token.
+   *
+   * `primary-bright` rather than `primary`: the rim is read at grazing angles
+   * against a near-black hall, and the deeper blue simply sinks into the
+   * background at the fringe where the edge should still be legible.
+   */
+  glow: 'primary-bright',
 } as const
 
 // ─── 5 · The units ────────────────────────────────────────────────────────────
@@ -753,6 +809,17 @@ export interface UnitLivery {
    * ⚠️ MUST BE DISTINGUISHABLE FROM EVERY OTHER UNIT'S, not merely different.
    * Five is about the most this palette supports while staying apart at a
    * glance; a sixth would need a colour that reads as one of these five.
+   *
+   * ⚠️ AND IT IS NOW DRAWN FROM THE PRIMARY FAMILY ONLY. Every machine is
+   * painted one fleet colour (`robotLivery.body`), so this stopped being the
+   * machine's dominant colour and became its DETAIL — the LED indicator strip,
+   * the identity badge and the 2D heading arrow. Keeping the five apart is
+   * not decoration: CLAUDE.md's domain rules forbid conveying state by colour
+   * alone precisely because a wall display is glanced at, and the same argument
+   * says an operator must be able to tell WHICH forklift they are looking at
+   * without reading a label. Two of these machines share a chassis and a GLB.
+   * Within one hue family the five are closer than they were, which is why the
+   * marking and the call-sign below carry more of the load than they used to.
    */
   accent: string
   /**
@@ -846,6 +913,8 @@ export const fleetRobots: FleetRobotDef[] = [
     typeId: 'C',
     homeStationId: 'hd-01',
     startBatteryPct: 88,
+    // The five rim tones are all primary-family, ordered brightest to deepest so
+    // no two neighbours in the roster sit next to each other on the ramp.
     livery: { accent: 'primary-bright', markings: 'stripe', name: 'Hoist' },
   },
   {
@@ -854,7 +923,7 @@ export const fleetRobots: FleetRobotDef[] = [
     typeId: 'C',
     homeStationId: 'hd-02',
     startBatteryPct: 47,
-    livery: { accent: 'warning', markings: 'chevron', name: 'Derrick' },
+    livery: { accent: 'primary-violet', markings: 'chevron', name: 'Derrick' },
   },
   {
     id: 'agv-01',
@@ -862,7 +931,7 @@ export const fleetRobots: FleetRobotDef[] = [
     typeId: 'A',
     homeStationId: 'hd-03',
     startBatteryPct: 63,
-    livery: { accent: 'success', markings: 'dot', name: 'Tug' },
+    livery: { accent: 'primary-accent', markings: 'dot', name: 'Tug' },
   },
   {
     id: 'amr-01',
@@ -870,7 +939,7 @@ export const fleetRobots: FleetRobotDef[] = [
     typeId: 'B',
     homeStationId: 'hd-04',
     startBatteryPct: 92,
-    livery: { accent: 'secondary', markings: 'band', name: 'Scout' },
+    livery: { accent: 'primary-medium', markings: 'band', name: 'Scout' },
     // Centre-south beat: the cross-dock staging bay and the south-aisle bay.
     dockService: { dockStationIds: ['dk-c1', 'dk-s1'], waitStationIds: ['hd-04'] },
   },
@@ -880,7 +949,7 @@ export const fleetRobots: FleetRobotDef[] = [
     typeId: 'B',
     homeStationId: 'hd-05',
     startBatteryPct: 34,
-    livery: { accent: 'tertiary-bright', markings: 'cross', name: 'Runner' },
+    livery: { accent: 'primary-deep', markings: 'cross', name: 'Runner' },
     // East-north beat: the east bay and the receiving bay the extended north
     // aisle now reaches.
     dockService: { dockStationIds: ['dk-e1', 'dk-n1'], waitStationIds: ['hd-05'] },
@@ -1028,7 +1097,22 @@ export const fleetSimParams = {
    * a lightly-queued fresh one.
    */
   trailPenaltyUnits: 340,
-  /** Visits at which a node's trail penalty is at full strength. */
+  /**
+   * Visits at which a node's trail penalty is at full strength.
+   *
+   * ⚠️ RAISING THE TRAIL PENALTY DOES NOT SPREAD THIS FLOOR — measured, not
+   * assumed, so nobody spends another afternoon on it. Pushing the penalty to
+   * 560 and saturating it at 2 visits over a 130 s half-life moved the centre
+   * spine's share of moving unit-samples from 35.5 % to 36.6 % across three
+   * seeds: no better, and slightly worse. The reason is structural and is the
+   * one already recorded in CLAUDE.md — the spine carries traffic because almost
+   * every station in the hall HANGS OFF IT, so most spine travel is arrival at a
+   * destination rather than a route choice between equals. A cost penalty can
+   * only bias the through-legs, and with three cross-overs there is usually no
+   * second way to bias them onto. See `STATION_SHORTLIST` in `fleetSim.ts` for
+   * the lever that does move, and the traffic note in CLAUDE.md for the layout
+   * change that would move it properly.
+   */
   trailFullVisits: 4,
   /** How fast the trail fades, as a half-life in seconds. */
   trailHalfLifeSeconds: 90,

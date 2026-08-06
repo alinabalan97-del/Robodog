@@ -371,9 +371,15 @@ const rackStations: Station[] = []
  * floor beside the lane to stand in, which is a handful of places. Letting the
  * faces take every slot first left two bays, no workstations and no waiting
  * bays — the faces had eaten the only floor the rest could have used.
+ *
+ * ⚠️ THAT ORDERING IS ENFORCED BY CALL ORDER, NOT BY A LEDGER. A
+ * `reservedSlots` array sat here to hold the claimed positions and was never
+ * written to or read from — the block above already runs `standingSpots()` and
+ * hands out every bay, stall and workstation before `placeRackFaces()` is
+ * called at the foot of this file, where the same rule is stated again and is
+ * the one actually in force. An empty ledger beside a working mechanism reads
+ * as the mechanism, which is worse than no ledger at all.
  */
-const reservedSlots: Array<{ x: number; laneY: number }> = []
-
 function placeRackFaces (): void {
   // A face sits ON its lane: this building's aisles are 1.0–1.6 m wide, so a
   // unit picking really does block the aisle and traffic really does queue

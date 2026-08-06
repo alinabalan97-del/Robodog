@@ -108,8 +108,12 @@ export class AsrsLayer {
     const trim = this.material(livery.trim, livery)
     // Self-lit, so the moving part stays readable inside a dim hall without the
     // lighting rig being tuned around it.
-    const accent = this.material(livery.accent, livery, 0.35)
-    const cargoPaint = this.material(livery.cargo, livery, 0.15)
+    // ⚠️ EMISSIVE ARGUMENTS DROPPED. The crane accent ran at 0.35 and its cargo
+    // paint at 0.15 — self-lit parts in the fleet accent, which bloomed into the
+    // floating glows this scene is being cleared of. Both keep their colour and
+    // are lit by the hall like everything else.
+    const accent = this.material(livery.accent, livery)
+    const cargoPaint = this.material(livery.cargo, livery)
 
     const { widthM, lengthM, heightM } = asrsCraneSize
 
@@ -275,7 +279,10 @@ export class AsrsLayer {
 
       // The lamp shows WORK, not power. A crane standing at its deck with
       // nothing to do is dark, which is the honest reading.
-      parts.lamp.material.emissiveIntensity = frame.working ? 1.6 : 0.15
+      // ⚠️ NO GLOW. Was 1.6 while working — the brightest thing in the hall, and
+      // it bloomed into a floating orb over each crane. `working` still reads
+      // off the lamp colour and the crane's own motion.
+      parts.lamp.material.emissiveIntensity = 0
     }
   }
 
